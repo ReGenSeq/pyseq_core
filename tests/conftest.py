@@ -1,7 +1,6 @@
 import pytest_asyncio
 import pytest
 import importlib
-import asyncio
 
 
 # Base Test Sequencer
@@ -13,27 +12,18 @@ async def BaseTestSequencer():
 
     seq = test_sequencer.TestSequencer(name="Test")
     systems = seq._get_systems_list()
+
     systems.append(seq)
     seq.start()
+    seq.initialize()
 
-    _ = []
-    for s in systems:
-        s.initialize()
-        _.append(s._queue.join())
-    await asyncio.gather(*_)
+    await seq._queue.join()
 
     # Sequencer call
     yield seq
 
-    # Sequencer Teardown
     # Shutdown systems and cancel task workers
-    for s in systems:
-        s.shutdown()
-        s._loop_stop = True
-        try:
-            s._worker_task.cancel()
-        except asyncio.CancelledError:
-            await s._worker_task
+    # seq.shutdown()
 
 
 @pytest.fixture
@@ -52,5 +42,5 @@ def test_roi_file_path():
 @pytest.fixture
 def BaseTestSequencerROIs(BaseTestSequencer, test_roi_file_path):
     """Base Test sequencer loaded with ROIs from test_roi.toml."""
-    BaseTestSequencer.add_rois("AB", test_roi_file_path)
+    BaseTestSequencer.add_rois(["A", "B"], test_roi_file_path)
     return BaseTestSequencer

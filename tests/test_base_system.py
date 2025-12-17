@@ -35,7 +35,9 @@ async def check_fc_queue(
     sequencer, caplog, only_check_filled=False, timeout=None, check_microscope=False
 ):
     """Check to see if queue gets filled and then emptied."""
-    flowcells = sequencer.enabled_flowcells
+    flowcells = [
+        fc for fc in sequencer._get_systems_list(None) if fc._pause_event.is_set()
+    ]
 
     try:
         # Check tasks added to queue
@@ -175,10 +177,15 @@ async def test_expose(BaseTestSequencerROIs, caplog):
 
 @pytest.mark.parametrize(
     "fc, fc_exp",
-    [("a", ["A"]), ("ab", ["A", "B"]), (None, ["A", "B"]), (["b", "a"], ["B", "A"])],
+    [
+        ("a", ["A"]),
+        ("ab", ["A", "B"]),
+        ("flowcell", ["A", "B"]),
+        (["b", "a"], ["B", "A"]),
+    ],
 )
 def test_get_fc_list(BaseTestSequencer, fc, fc_exp):
-    fcs = BaseTestSequencer._get_fc_list(fc)
+    fcs = BaseTestSequencer._get_systems_list(fc)
     fc_ = [_.name for _ in fcs]
     assert fc_ == fc_exp
     BaseTestSequencer.start()

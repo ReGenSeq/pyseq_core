@@ -9,10 +9,6 @@ from pyseq_core.utils import (
 from pyseq_core.base_instruments import (
     BaseInstrument,
     BaseStage,
-    # BaseYStage,
-    # BaseXStage,
-    # BaseZStage,
-    # BaseObjectiveStage,
     BaseShutter,
     BaseFilterWheel,
     BaseLaser,
@@ -46,7 +42,6 @@ from pyseq_core.roi_manager import ROIManager, read_roi_config
 from typing import Dict, Union, List, Coroutine, Literal, Type
 from attrs import define, field
 from pydantic import ValidationError
-from functools import cached_property
 from pathlib import Path
 from warnings import warn
 import asyncio
@@ -76,8 +71,6 @@ class BaseSystem(ABC):
     _pause_event: asyncio.Event = field(init=False, factory=asyncio.Event)
     _loop_stop: bool = field(init=False, default=False)
     _reservation_system: ReservationSystem = field(init=False)
-    _protocol_name: str = field(default="")
-    _protocol_cycle: int = field(default=1)
     # _background_tasks: set = field(init=False, factory=set)
 
     def __attrs_post_init__(self):
@@ -101,7 +94,6 @@ class BaseSystem(ABC):
 
         while not self._loop_stop:
             # Wait if queue is paused
-
             await self._pause_event.wait()
 
             # Get task
@@ -113,7 +105,7 @@ class BaseSystem(ABC):
 
             if not self._queue_dict[id][1]:
                 # Check if the task is cancelled
-                LOGGER.debug(f"Task {id} :: {description} cancelled")
+                LOGGER.debug(f"{self.name} :: Task {id} :: {description} cancelled")
             else:
                 # Run the task in the event loop
 
@@ -160,9 +152,9 @@ class BaseSystem(ABC):
         if command_id in self._queue_dict:
             self._queue_dict[command_id][1] = False
             description = self._queue_dict[command_id][0]
-            LOGGER.info(f"Cancelled task {command_id} :: {description}")
+            LOGGER.info(f"{self.name} :: Cancelled task {command_id} :: {description}")
         else:
-            LOGGER.warning(f"Task {command_id} not found")
+            LOGGER.warning(f"{self.name} :: Task {command_id} not found")
 
     async def clear_queue(self):
         for command_id in self._queue_dict:
@@ -227,7 +219,8 @@ class BaseSystem(ABC):
         LOGGER.info(f"{self.name} Connecting to instruments")
         _ = []
         for instrument in self.iter_instruments:
-            _.append(instrument.com.connect())
+            if instrument.com is not None:
+                _.append(instrument.com.connect())
         await asyncio.gather(*_)
 
         LOGGER.info(f"Initializing {self.name}")
@@ -239,10 +232,24 @@ class BaseSystem(ABC):
     async def _shutdown(self):
         """Shutdown the system."""
         LOGGER.info(f"Shutting down {self.name}")
+
+        # Cancel pending tasks
+        await self.clear_queue()
+
+        # Shutdown instruments safely
         _ = []
         for instrument in self.iter_instruments:
             _.append(instrument.shutdown())
         await asyncio.gather(*_)
+
+        # Stop worker loop
+        self._loop_stop = True
+
+        # Stop work task
+        try:
+            self._worker_task.cancel()
+        except asyncio.CancelledError:
+            await self._worker_task
 
     async def _status(self):
         """Check status all instruments comprising the system."""
@@ -260,7 +267,7 @@ class BaseSystem(ABC):
         """Configure the system."""
         pass
 
-    @cached_property
+    @property
     def iter_instruments(self) -> List[BaseInstrument]:
         _ = []
         for instrument in self.instruments.values():
@@ -442,8 +449,10 @@ class BaseFlowCell(BaseSystem):
     _roi_to_microscope: Coroutine = field(init=False)
     reagents: dict = field(factory=dict)
     ROIs: dict = field(init=False, factory=dict)
-    enabled: bool = True
+    # enabled: bool = True
     _exp_config: dict = field(default=None)
+    _protocol_name: str = field(default="")
+    _protocol_cycle: int = field(default=1)
 
     @property
     def Pump(self) -> BasePump:
@@ -610,7 +619,7 @@ def get_roi(func):
     ):
         if isinstance(roi, list) and len(roi) == 0 and len(kwargs) == 0:
             # image/expose/focus ROIs listed on flowcells
-            for fc in self._get_fc_list(flowcells):
+            for fc in self._get_systems_list(flowcells):
                 func(self, roi, fc.name)
             return
         elif not isinstance(roi, list) and len(kwargs) == 0:
@@ -638,7 +647,8 @@ class BaseSequencer(BaseSystem):
     _flowcells: dict[Union[str, int], BaseFlowCell] = field(init=False)
     _reagents_manager: ReagentsManager = field(init=False)
     _roi_manager: ROIManager = field(init=False)
-    _enable: dict = field(factory=dict)
+    _sys_dict: dict = field(init=False)
+    # _enable: dict = field(factory=dict)
 
     @property
     def microscope(self) -> BaseMicroscope:
@@ -663,11 +673,11 @@ class BaseSequencer(BaseSystem):
         # Add ROI manager
         self._roi_manager = ROIManager(self._flowcells)
 
-        # Connect microscope to flow cells and enable flowcells
+        # Connect microscope to flow cells
         for fc in self._flowcells.keys():
             self._flowcells[fc]._roi_to_microscope = self._microscope._from_flowcell
             self._flowcells[fc]._reservation_system = rez_sys
-            self._enable[fc] = True
+            # self._enable[fc] = True
 
         self._pause_event.set()
 
@@ -684,7 +694,7 @@ class BaseSequencer(BaseSystem):
         **kwargs,
     ):
         """Pump volume in uL from/to specified port at flow rate in ul/min on specified flow cell."""
-        fc_ = self._get_fc_list(flowcells)
+        fc_ = self._get_systems_list(flowcells)
 
         task_ids = []
         for fc in fc_:
@@ -706,7 +716,7 @@ class BaseSequencer(BaseSystem):
 
         if hold_command is None:
             hold_command = HoldCommand(**kwargs)
-        fc_ = self._get_fc_list(flowcells)
+        fc_ = self._get_systems_list(flowcells)
         task_ids = []
         for fc in fc_:
             task_ids.append(fc.hold(hold_command.duration))
@@ -722,7 +732,7 @@ class BaseSequencer(BaseSystem):
 
         if wait_command is None:
             wait_command = WaitCommand(**kwargs)
-        fc_ = self._get_fc_list(flowcells)
+        fc_ = self._get_systems_list(flowcells)
         task_ids = []
         for fc in fc_:
             task_ids.append(fc.wait(wait_command.event))
@@ -738,7 +748,7 @@ class BaseSequencer(BaseSystem):
 
         if user_command is None:
             user_command = UserCommand(**kwargs)
-        fc_ = self._get_fc_list(flowcells)
+        fc_ = self._get_systems_list(flowcells)
         task_ids = []
         for fc in fc_:
             task_ids.append(fc.user(user_command.message, user_command.timeout))
@@ -751,7 +761,7 @@ class BaseSequencer(BaseSystem):
         **kwargs,
     ):
         """Hold specified flow cell for specified duration in minutes, used for incubations."""
-        fc_ = self._get_fc_list(flowcells)
+        fc_ = self._get_systems_list(flowcells)
         task_ids = []
         for fc in fc_:
             if temperature_command is None:
@@ -792,93 +802,139 @@ class BaseSequencer(BaseSystem):
         """Expose ROIs to light without imaging."""
         self.flowcells[flowcells].expose(roi)
 
+    async def _initialize(self, systems: Union[str, List[str]] = []):
+        """Connect to and initiliaze instruments in flow cell, microscope or entire sequencer (default)."""
+
+        _systems = self._get_systems_list(systems)
+        _ = []
+        for s in _systems:
+            s.initialize()
+            _.append(s._queue.join())
+        await asyncio.gather(*_)
+
+    async def _configure(self, exp_config: dict, systems: Union[str, List[str]] = []):
+        """Configure instruments in flow cell, microscope or entire sequencer (default)."""
+
+        _systems = self._get_systems_list(systems)
+        _ = []
+        for s in _systems:
+            s.configure(exp_config)
+            _.append(s._queue.join())
+        await asyncio.gather(*_)
+
     def pause(self, systems: Union[str, List[str]] = []):
         """Pause flow cell, microscope, or entire sequencer (default)."""
 
         # Check user supplied queues
-        systems = self._get_systems_list(systems)
-        for s in systems:
+        _systems = self._get_systems_list(systems)
+        for s in _systems:
             s.pause()
+        if len(systems) == 0:
+            self._pause_event.clear()
 
     def start(self, systems: Union[str, List[str]] = []):
         """Start flow cell, microscope, or entire sequencer (default)."""
 
         # Check user supplied queues
-        systems = self._get_systems_list(systems)
-        for s in systems:
+        _systems = self._get_systems_list(systems)
+        for s in _systems:
             s.start()
+        if len(systems) == 0:
+            self._pause_event.set()
+
+    def shutdown(self, systems: Union[str, List[str]] = []):
+        """Shutdown flow cell, microscope, or entire sequencer (default)."""
+
+        # Check user supplied queues
+        _systems = self._get_systems_list(systems)
+        for s in _systems:
+            s.shutdown()
+        # if len(systems) == 0:
+        #     self._loop_stop = True
 
     def _get_systems_list(
-        self, systems: Union[str, List[str]] = []
-    ) -> List[BaseSystem]:
+        self, systems: Union[str, List[str, int]] = []
+    ) -> List[Union[BaseMicroscope, BaseFlowCell]]:
         """Return list of valid flow cell and microscope systems."""
 
-        fc_list = self._get_fc_list()
-        microscope = self._microscope
+        fc_list = [fc for fc in self._flowcells.values()]
 
-        if len(systems) == 0:
-            return fc_list + [microscope]
+        # Return all systems, flowcells, or microscopes
+        if systems is None:
+            return fc_list
+        elif len(systems) == 0:
+            return fc_list + [self._microscope]
         elif "flowcell" in systems:
-            return self._get_fc_list()
+            return fc_list
         elif "micro" in systems or "scope" in systems:
-            return [self.microscope]
-        elif isinstance(systems, str):
+            return [self._microscope]
+        elif isinstance(systems, str) and len(systems) <= len(fc_list):
+            # Assume string of flowcells for example "AB" = ["A", "B"]
+            systems = [s.upper() for s in systems]
+        elif isinstance(systems, int):
+            # input is flow cell referenced by number
             systems = [systems]
+        elif isinstance(systems, list):
+            # input is list
+            systems = [
+                s.upper() if isinstance(s, str) and len(s) == 1 else s for s in systems
+            ]
 
         systems_ = []
-        for i in systems:
-            if i in self.enable:
-                systems_.append(self.flowcells[i])
-            elif i == microscope.name:
-                systems_.append(self.microscope)
+        for s in systems:
+            if s in self._flowcells.keys():
+                systems_.append(self._flowcells[s])
+            elif "micro" in s.lower() or "scope" in s.lower():
+                systems_.append(self._microscope)
             else:
-                raise ValueError(f"{i} is not a valid flow cell or microscope.")
+                raise ValueError(f"{s} is not a valid flow cell or microscope.")
 
         return systems_
 
-    def _get_fc_list(self, fc: Union[str, list] = None) -> List[BaseFlowCell]:
-        """Return list of valid flowcells."""
+    # def _get_fc_list(self, fc: Union[str, list] = None) -> List[BaseFlowCell]:
+    #     """Return list of valid running flowcells.
+    #     """
 
-        if fc is None:
-            return self.enabled_flowcells
-        elif isinstance(fc, str) and len(fc) == 1:
-            # fc = 'A' or 'B'
-            fc = [fc]
-        # else: fc = 'AB' or ['A', 'B']
-        fc_ = [_.upper() for _ in fc]
+    #     if fc is None:
+    #         return [fc for fc in  self.flowcells.values() if fc._pause_event.is_set()]
+    #     elif isinstance(fc, str) and len(fc) == 1:
+    #         # fc = 'A' or 'B'
+    #         fc = [fc]
+    #     # else: fc = 'AB' or ['A', 'B']
+    #     fc_ = [_.upper() for _ in fc]
 
-        # Check user supplied flow cell names
-        fcs = []
-        for fc in fc_:
-            if fc not in self._flowcells:
-                raise ValueError(f"{fc} is not a valid flow cell.")
-            elif not self._flowcells[fc].enabled:
-                raise ValueError(f"Flow cell {fc} is disabled.")
-            else:
-                fcs.append(self._flowcells[fc])
+    #     # Check user supplied flow cell names
+    #     fcs = []
+    #     for fc in fc_:
+    #         if fc not in self._flowcells:
+    #             raise ValueError(f"{fc} is not a valid flow cell.")
+    #         elif not self._flowcells[fc]._pause_event.is_set():
+    #             raise ValueError(f"Flow cell {fc} is paused.")
+    #         else:
+    #             fcs.append(self._flowcells[fc])
 
-        return fcs
+    #     return fcs
 
-    @property
-    def enable(self):
-        """Get the enabled status of the flowcells."""
-        return self._enable
+    # @property
+    # def enable(self):
+    #     """Get the enabled status of the flowcells."""
+    #     return self._enable
 
-    @enable.setter
-    def enable(self, flowcells: Union[str, list]):
-        """Toggle flowcells to be enabled/disabled"""
-        for fc in self._get_fc_list(flowcells):
-            status = not self._flowcells[fc].enable
-            self._flowcells[fc].enabled = status
-            self._enable[fc] = status
+    # @enable.setter
+    # def enable(self, flowcells: Union[str, list]):
+    #     """Toggle flowcells to be enabled/disabled"""
+    #     for fc in self._get_fc_list(flowcells):
+    #         status = not self._flowcells[fc].enable
+    #         self._flowcells[fc].enabled = status
+    #         self._enable[fc] = status
 
-    @property
-    def enabled_flowcells(self):
-        """Get the list of only enabled flowcells."""
-        return [fc for fc in self._flowcells.values() if fc.enabled]
+    # @property
+    # def enabled_flowcells(self):
+    #     """Get the list of only enabled flowcells."""
+    #     return [fc for fc in self._flowcells.values() if fc.enabled]
 
     def add_rois(self, fc_names: str, roi_path: str) -> int:
-        flowcells = self._get_fc_list(fc_names)
+        flowcells = self._get_systems_list(fc_names)
 
         # Read roi file and get list of validated ROIs
         try:
@@ -892,11 +948,11 @@ class BaseSequencer(BaseSystem):
             LOGGER.error(e)
             return 0
 
-        # Add rois to flowcells
+        # Add rois to flowcells, keep track if error adding roi to flowcell
         was_roi_added = []
         for roi in rois:
             was_roi_added.append(self._roi_manager.add(roi))
-        # Wake up flowcells waiting for ROIs
+        # Wake up flowcells waiting for ROIs if no errors
         if self._roi_manager.roi_condition.locked() and all(was_roi_added):
             self._roi_manager.roi_condition.notify_all()
 
@@ -907,7 +963,7 @@ class BaseSequencer(BaseSystem):
     ):
         """Load new experimenet from config file for specified flowcells"""
         # Pause flowcells
-        flowcells = self._get_fc_list(fc_names)
+        flowcells = self._get_systems_list(fc_names)
         for fc in flowcells:
             if not fc._queue.empty():
                 raise RuntimeError(
@@ -935,7 +991,7 @@ class BaseSequencer(BaseSystem):
         )
 
         # Reset rois and reagents
-        flowcells = self._get_fc_list(fc_names)
+        flowcells = self._get_systems_list(fc_names)
         for fc in flowcells:
             fc._exp_config = exp_config
             fc.ROIs = dict()

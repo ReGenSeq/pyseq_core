@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from pyseq_core.utils import HW_CONFIG
 from pyseq_core.base_com import BaseCOM
 from attrs import define, field
-from typing import Union, List
+from typing import Union
 from functools import cached_property
 import asyncio
 
@@ -276,7 +276,7 @@ class BasePump(BaseInstrument):
 @define
 class BaseValve(BaseInstrument):
     _port: Union[str, int] = field(init=False)
-    ports: List[int] = field(init=False)
+    # ports: List[int] = field(init=False)
     """
     Abstract base class for a valve instrument.
 
@@ -317,9 +317,9 @@ class BaseValve(BaseInstrument):
         """
         pass
 
-    @ports.default
-    def default_ports(self):
-        self.config["port"]["valid_list"]
+    # @ports.default
+    # def default_ports(self):
+    #     self.config["port"]["valid_list"]
 
     @cached_property
     def ports(self):

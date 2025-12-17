@@ -8,7 +8,8 @@ import logging
 import logging.config  # Need to import, or I get an AttributeError?
 import datetime
 import re
-from typing import Union, TypeVar, Type, TYPE_CHECKING
+import inspect
+from typing import Union, TypeVar, Type, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pyseq_core.base_com import BaseCOM
@@ -19,21 +20,47 @@ LOGGER = logging.getLogger("PySeq")
 
 # --- MACHINE_SETTINGS Configuration ---
 # This section handles the loading of machine-specific hardware configurations.
-# Local machine specific settings
-RESOURCE_PATH = resources.files("pyseq_core")
-# Use resource file from a different "pyseq" package
-if os.environ.get("PYTEST_VERSION") is not None:
-    import inspect
 
-    caller_frame = inspect.stack()
+
+# Use resource file from a different "pyseq" package
+def get_sequencer_package_path(caller_frame: List[inspect.FrameInfo]) -> Path:
+    """Get the path to the sequencer specific pyseq package being used.
+
+    Returns:
+        Path to the sequencer specific pyseq package.
+    """
+
     pattern = re.compile(r"(pyseq[\w|-|_]+)", re.IGNORECASE)
     for frame in caller_frame:
-        match = re.search(pattern, frame.filename)
+        match = re.findall(pattern, frame.filename)
         if match:
-            package = match.groups()[0].lower()
-            if package != "pyseq_core":
-                RESOURCE_PATH = resources.files(package)
-                break
+            for m in match:
+                package = m.lower()
+                if package != "pyseq_core":
+                    try:
+                        return resources.files(package)
+                    except ModuleNotFoundError:
+                        # pyseq is in filepath, ignore
+                        pass
+
+
+if os.environ.get("PYTEST_VERSION") is not None:
+    RESOURCE_PATH = get_sequencer_package_path(inspect.stack())
+    if RESOURCE_PATH is None:
+        # Fallback to pyseq_core resources in remote tests
+        RESOURCE_PATH = resources.files("pyseq_core")
+    # for frame in caller_frame:
+    #     match = re.findall(pattern, frame.filename)
+    #     if match:
+    #        for m in match:
+    #            package = m.lower()
+    #            if package != "pyseq_core":
+    #                try:
+    #                     RESOURCE_PATH = resources.files(package)
+    #                     break
+    #                except ModuleNotFoundError:
+    #                    # pyseq is in filepath, ignore
+    #                    pass
 
 
 MACHINE_SETTINGS_PATH = Path.home() / ".config/pyseq/machine_settings.yaml"

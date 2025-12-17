@@ -442,14 +442,13 @@ class TestSequencer(BaseSequencer):
 
     _flowcells: dict = field(init=False)
     _microscope: TestMicroscope = field(factory=TestMicroscope)
-    _enable: dict = {fc: True for fc in ["A", "B"]}
 
     @_flowcells.default
     def set_flowcells(self):
         return {fc: TestFlowCell(name=fc) for fc in ["A", "B"]}
 
-    async def _configure(self, exp_config):
-        LOGGER.debug(f"Configuring {self.name}")
+    # async def _configure(self, exp_config):
+    #     LOGGER.debug(f"Configuring {self.name}")
 
     def custom_roi_stage(self, flowcell: Union[str, int], **kwargs) -> ROIType:
         """Take LLx, LLy, URx, URy coordinates and return stage position parameters."""
