@@ -44,11 +44,13 @@ def get_sequencer_package_path(caller_frame: List[inspect.FrameInfo]) -> Path:
                         pass
 
 
+RESOURCE_PATH = None
 if os.environ.get("PYTEST_VERSION") is not None:
     RESOURCE_PATH = get_sequencer_package_path(inspect.stack())
-    if RESOURCE_PATH is None:
-        # Fallback to pyseq_core resources in remote tests
-        RESOURCE_PATH = resources.files("pyseq_core")
+if RESOURCE_PATH is None:
+    # Fallback to pyseq_core resources in remote tests
+    RESOURCE_PATH = resources.files("pyseq_core")
+
     # for frame in caller_frame:
     #     match = re.findall(pattern, frame.filename)
     #     if match:
@@ -73,14 +75,14 @@ stored in one file. The top-level key `name` specifies which sequencer or
 version to use, and its corresponding settings are loaded into `HW_CONFIG`.
 
 If the file does not exist at `~/.config/pyseq/machine_settings.yaml`,
-settings from the `pyseq_core` package resources will be copied and used as a fallback.
+settings from the sequencer specific package resources will be copied and used as a fallback.
 """
 
 if not MACHINE_SETTINGS_PATH.exists():
     # Copy settings from package if local machine setting do not exist
     os.makedirs(MACHINE_SETTINGS_PATH.parent, exist_ok=True)
     os.makedirs(MACHINE_SETTINGS_PATH.parent / "logs", exist_ok=True)
-    resource_path = resources.files("pyseq_core")
+    # resource_path = resources.files("pyseq_core")
     shutil.copy(MACHINE_SETTINGS_RESOURCE, MACHINE_SETTINGS_PATH)
 
 with open(MACHINE_SETTINGS_PATH, "r") as f:
