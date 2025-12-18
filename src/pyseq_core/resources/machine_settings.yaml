@@ -27,7 +27,7 @@ Test:
   ValveA: &reagent_valve
     com:
       <<: *com
-      address: COM2
+      address: VICIA
     n_ports: 24
     port:
       valid_list: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
@@ -35,11 +35,11 @@ Test:
     <<: *reagent_valve
     com:
       <<: *com
-      address: COM4
+      address: VICIB
   XStage:
     com:
       <<: *com
-      address: COM5
+      address: ILXstage
     spum: 1
     origin: 
       A: 100
@@ -52,7 +52,7 @@ Test:
   YStage:
     com:
       <<: *com
-      address: COM6
+      address: ILYstage
     spum: 1
     origin: 300
     step: 200
@@ -63,7 +63,7 @@ Test:
   TiltStage: &tiltstage
     com:
       <<: *com
-      address: COM8, COM9
+      address: ILFPGA
     spum: 100
     position: &tiltposition
      min_val: 0
@@ -96,7 +96,7 @@ Test:
   redLaser: 
     com:
       <<: *com
-      address: COM10
+      address: ILRed
     power: &red_laser
       min_val: 0
       max_val: 400
@@ -104,7 +104,7 @@ Test:
   greenLaser: 
     com:
       <<: *com
-      address: COM11
+      address: ILGreen
     power: &green_laser
       min_val: 0
       max_val: 400 

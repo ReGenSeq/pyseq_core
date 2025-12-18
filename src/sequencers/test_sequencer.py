@@ -34,13 +34,13 @@ ROIType = Type[ROI]
 
 @define
 class TestCOM(BaseCOM):
-    open: bool = field(default=False)
+    # open: bool = field(default=False)
 
     async def connect(self):
         async with self.lock:
-            if not self.open:
+            if not self._connected:
                 LOGGER.debug(f"connecting to {self.address}")
-                self.open = True
+                self._connected = True
                 return f"connected to {self.address}"
             return f"{self.address} shared with another instrument"
         return None
@@ -53,6 +53,7 @@ class TestCOM(BaseCOM):
     async def close(self):
         async with self.lock:
             LOGGER.debug(f"Closing connection to {self.address}")
+            self._connected = False
             return True
 
 

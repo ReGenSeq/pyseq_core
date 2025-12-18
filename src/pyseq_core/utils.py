@@ -75,7 +75,8 @@ stored in one file. The top-level key `name` specifies which sequencer or
 version to use, and its corresponding settings are loaded into `HW_CONFIG`.
 
 If the file does not exist at `~/.config/pyseq/machine_settings.yaml`,
-settings from the sequencer specific package resources will be copied and used as a fallback.
+settings from the sequencer specific or corepackage resources will be copied 
+and used as a fallback.
 """
 
 if not MACHINE_SETTINGS_PATH.exists():
@@ -249,7 +250,7 @@ def update_logger(logger_conf: dict, rotating: bool = False):
 
 
 def map_coms(
-    com_class: "BaseCOM", address_dict: dict = None, hw_config: dict = HW_CONFIG
+    com_class: "BaseCOM", address_dict: dict = {}, hw_config: dict = HW_CONFIG
 ):
     """Maps instrument names to their communication instances.
 
@@ -276,7 +277,7 @@ def map_coms(
 
     coms = {}
     for instrument, com_id in _coms.items():
-        if address_dict is None:
+        if not address_dict:
             # Identifier is the actual address
             address = com_id
         else:
@@ -302,7 +303,7 @@ def map_coms(
         elif instrument in coms:
             LOGGER.debug(f"{instrument} already assigned to {coms[instrument].address}")
             # If the instrument already has a COM object (e.g., from a previous alias), do nothing
-        elif com_id not in coms:
+        elif com_id not in address_dict:
             LOGGER.error(f"Could not find coms with id {com_id} for {instrument}")
             coms[instrument] = com_class(name=instrument, address=address)
         else:
