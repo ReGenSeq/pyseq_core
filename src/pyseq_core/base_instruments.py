@@ -44,7 +44,7 @@ class BaseInstrument(ABC):
         Returns:
             str,dict: The response received from the instrument's communication interface.
         """
-        return await self.com.command(command)
+        return await self.com.command(command, read)
 
     @abstractmethod
     async def initialize(self):
