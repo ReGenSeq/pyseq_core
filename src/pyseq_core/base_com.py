@@ -45,12 +45,13 @@ class BaseCOM(ABC):
             pass
 
     @abstractmethod
-    async def command(self, command: str) -> Union[str, dict]:
+    async def command(self, command: str, read: bool = True) -> Union[str, dict]:
         """
         Asynchronously sends a command to the communication interface.
 
         Args:
             command (str): The command string to be sent.
+            read (bool): Whether to read the response from the device.
         """
         async with self.lock:
             pass

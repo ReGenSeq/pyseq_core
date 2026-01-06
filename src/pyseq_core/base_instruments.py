@@ -32,7 +32,7 @@ class BaseInstrument(ABC):
     def config(self) -> dict:
         return HW_CONFIG[self.name]
 
-    async def command(self, command: Union[str, dict]):
+    async def command(self, command: Union[str, dict], read: bool = True):
         """Send a command string to the instrument.
 
         This method forwards the given command to the instrument's communication
