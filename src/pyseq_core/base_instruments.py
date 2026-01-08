@@ -25,14 +25,17 @@ class BaseInstrument(ABC):
     """
 
     @property
-    def connected(self):
+    def connected(self) -> bool:
         return self.com._connected
 
     @cached_property
     def config(self) -> dict:
         return HW_CONFIG[self.name]
 
-    async def command(self, command: Union[str, dict], read: bool = True):
+    def connect(self) -> bool:
+        return self.com.connect()
+
+    async def command(self, command: Union[str, dict], **kwargs):
         """Send a command string to the instrument.
 
         This method forwards the given command to the instrument's communication
@@ -44,7 +47,7 @@ class BaseInstrument(ABC):
         Returns:
             str,dict: The response received from the instrument's communication interface.
         """
-        return await self.com.command(command, read)
+        return await self.com.command(command, **kwargs)
 
     @abstractmethod
     async def initialize(self):

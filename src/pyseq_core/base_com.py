@@ -42,6 +42,7 @@ class BaseCOM(ABC):
             str: Message if the connection is successful or already exists, otherwise None.
         """
         async with self.lock:
+            self._connected = True
             pass
 
     @abstractmethod
