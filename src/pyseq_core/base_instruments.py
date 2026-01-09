@@ -334,7 +334,7 @@ class BaseValve(BaseInstrument):
         Returns:
             list[Union[str, int]]: A list of valid port identifiers.
         """
-        return self.config.get("valid_list", [])
+        return self.config.get("port", {}).get("valid_list", [])
 
     @property
     def port(self):
@@ -469,7 +469,7 @@ class BaseFilter(BaseInstrument):
         It populates the `_filters` attribute with the list of valid filters
         retrieved from the instrument's configuration.
         """
-        self._filters = self.config.get("valid_list")
+        self._filters = self.config.get("filter", {}).get("valid_list", {})
 
     @abstractmethod
     async def set_filter(self, filter: Union[float, str]):
@@ -527,7 +527,7 @@ class BaseShutter(BaseInstrument):
     Attributes:
         _open (bool): An cached attribute indicating whether the shutter is
             currently open (`True`) or closed (`False`). This should be accessed
-            via the `open` property.
+            via the `is_open` property.
     """
 
     @abstractmethod

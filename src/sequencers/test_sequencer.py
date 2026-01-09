@@ -71,7 +71,7 @@ class DumbBaseMethods:
     def __init__(self, name: str, com: TestCOM = None, **kwargs):
         self.name = name
         self.com = com
-        self.open = False
+        self._connected = False
 
     async def initialize(self):
         """Initialize the instrument."""
@@ -129,17 +129,16 @@ class TestShutter(DumbBaseMethods, BaseShutter):
     ):
         super().__init__(name, com=com)
 
-    async def move(self, open: bool):
-        """Open the shutter."""
-        if open:
-            LOGGER.debug(f"Opening {self.name}")
-        else:
-            LOGGER.debug(f"Closing {self.name}")
-        self.open = open
+    async def open(self):
+        """Close the shutter."""
+        LOGGER.debug(f"Opening shutter {self.name}")
+        self._open = True
+        return True
 
     async def close(self):
         """Close the shutter."""
         LOGGER.debug(f"Closing shutter {self.name}")
+        self._open = False
         return True
 
 
@@ -320,9 +319,10 @@ class TestMicroscope(BaseMicroscope):
         """Capture an image and save it to the specified filename."""
 
         LOGGER.debug(f"Acquire {im_name}")
-        await self.Shutter.move(open=True)
+        print(self.Shutter.open)
+        await self.Shutter.open()
         await self.YStage.move(roi.stage.y_last)
-        await self.Shutter.move(open=False)
+        await self.Shutter.close()
         _ = []
         for c in self.Camera.values():
             _.append(c.save_image(im_name))
