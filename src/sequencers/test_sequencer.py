@@ -11,7 +11,7 @@ from pyseq_core.utils import map_coms
 from pyseq_core.base_instruments import (
     BaseCamera,
     BaseShutter,
-    BaseFilterWheel,
+    BaseFilter,
     BaseLaser,
     BaseStage,
     BasePump,
@@ -143,7 +143,7 @@ class TestShutter(DumbBaseMethods, BaseShutter):
         return True
 
 
-class TestFilterWheel(DumbBaseMethods, BaseFilterWheel):
+class TestFilterWheel(DumbBaseMethods, BaseFilter):
     def __init__(self, color: str, com: TestCOM):
         super().__init__(f"{color}FilterWheel", com=com)
 
@@ -151,6 +151,11 @@ class TestFilterWheel(DumbBaseMethods, BaseFilterWheel):
         """Select a filter on the wheel."""
         LOGGER.debug(f"Selecting filter {filter} on {self.name}")
         self._filter = filter
+
+    async def get_filter(self):
+        """Select a filter on the wheel."""
+        LOGGER.debug(f"Gelecting filter {filter} on {self.name}")
+        return self._filter
 
 
 class TestLaser(DumbBaseMethods, BaseLaser):

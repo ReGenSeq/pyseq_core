@@ -446,13 +446,14 @@ class BaseLaser(BaseInstrument):
 
 
 @define
-class BaseFilterWheel(BaseInstrument):
+class BaseFilter(BaseInstrument):
     _filters: dict = field(init=False)
     _filter: Union[float, str] = field(init=False)
-    """Abstract base class for filter wheel instruments.
+    """Abstract base class for optical filter instruments.
 
     This class extends `BaseInstrument` to define common properties and
-    abstract methods for selecting a filter from a filter wheel.
+    abstract methods for selecting a filter from a filter wheel or moving a filter
+    in place.
 
     Attributes:
         _filters (dict): A dictionary mapping filter names to their positions on
@@ -481,6 +482,19 @@ class BaseFilterWheel(BaseInstrument):
         Args:
             filter (Union[float, str]): The identifier of the filter to select.
                 This could be a filter name (str) or an index (float/int).
+
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
+        """
+        pass
+
+    @abstractmethod
+    async def get_filter(self):
+        """Get postion of filter wheel.
+
+        This is an abstract asynchronous method that must be implemented by
+        subclasses to read the position of the filter wheel and saves the position
+        to `_filter`.
 
         Raises:
             NotImplementedError: If the method is not implemented by a subclass.
@@ -517,7 +531,7 @@ class BaseShutter(BaseInstrument):
     """
 
     @abstractmethod
-    async def move(self, open: bool = True):
+    async def open(self):
         """Moves the shutter to either an open or closed position.
 
         This is an abstract asynchronous method that must be implemented by

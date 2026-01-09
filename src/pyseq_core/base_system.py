@@ -10,7 +10,7 @@ from pyseq_core.base_instruments import (
     BaseInstrument,
     BaseStage,
     BaseShutter,
-    BaseFilterWheel,
+    BaseFilter,
     BaseLaser,
     BaseCamera,
     BasePump,
@@ -214,13 +214,13 @@ class BaseSystem(ABC):
                 await_task.cancel()
 
     async def _initialize(self):
-        """Connect to instruments, then configure and initialize system."""
+        """Connect to instruments and initialize system."""
 
         LOGGER.info(f"{self.name} Connecting to instruments")
         _ = []
         for instrument in self.iter_instruments:
             if instrument.com is not None:
-                _.append(instrument.com.connect())
+                _.append(instrument.connect())
         await asyncio.gather(*_)
 
         LOGGER.info(f"Initializing {self.name}")
@@ -311,7 +311,7 @@ class BaseMicroscope(BaseSystem):
         return self.instruments.get("Shutter", None)
 
     @property
-    def FilterWheel(self) -> Dict[str, BaseFilterWheel]:
+    def FilterWheel(self) -> Dict[str, BaseFilter]:
         """Abstract property for the FilterWheel.
         Return a dictionary of FilterWheel with their respective laser color lines."""
         return self.instruments.get("FilterWheel", {})
@@ -805,6 +805,19 @@ class BaseSequencer(BaseSystem):
     async def _initialize(self, systems: Union[str, List[str]] = []):
         """Connect to and initiliaze instruments in flow cell, microscope or entire sequencer (default)."""
 
+        # Connect to sequencer instruments
+        _ = []
+        for instrument in self.iter_instruments:
+            _.append(instrument.connect())
+        await asyncio.gather(*_)
+
+        # Initialize sequencer instruments
+        _ = []
+        for instrument in self.iter_instruments:
+            _.append(instrument.initialize())
+        await asyncio.gather(*_)
+
+        # Initialize sequencer sub systems
         _systems = self._get_systems_list(systems)
         _ = []
         for s in _systems:
@@ -815,6 +828,13 @@ class BaseSequencer(BaseSystem):
     async def _configure(self, exp_config: dict, systems: Union[str, List[str]] = []):
         """Configure instruments in flow cell, microscope or entire sequencer (default)."""
 
+        # Configure sequencer instruments
+        _ = []
+        for instrument in self.iter_instruments:
+            _.append(instrument.initialize())
+        await asyncio.gather(*_)
+
+        # Configure sub system instruments
         _systems = self._get_systems_list(systems)
         _ = []
         for s in _systems:
