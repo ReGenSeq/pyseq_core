@@ -223,7 +223,7 @@ class HamamatsuCamera:
     #
     # @param camera_id The id of the camera (an integer).
     #
-    def __init__(self, camera_id, logger=None):
+    def __init__(self, camera_id):
         """Constructor for HiSeq Camera.
 
         **Parameters:**
@@ -245,9 +245,8 @@ class HamamatsuCamera:
         self.left_emission = None
         self.right_emission = None
         self.status = None
-        self.logger = logger
-        self.tdi_exposure = 0.002568533333333333  # TDI exposure time in s
-        self.area_exposure = 0.005025378  # AREA exposure time in s
+        # self.tdi_exposure = 0.002568533333333333  # TDI exposure time in s
+        # self.area_exposure = 0.005025378  # AREA exposure time in s
         self.sensor_mode = None
 
         # Open the camera.
@@ -483,8 +482,8 @@ class HamamatsuCamera:
         if self.right_emission is None:
             self.right_emission = "Right"
 
-        left_name = "c" + str(self.left_emission) + "_" + image_name + ".tiff"
-        right_name = "c" + str(self.right_emission) + "_" + image_name + ".tiff"
+        left_name = f"c{self.left_emission}_{image_name}.tiff"
+        right_name = f"c{self.right_emission}_{image_name}.tiff"
 
         imageio.imwrite(join(image_path, left_name), left_image)
         imageio.imwrite(join(image_path, right_name), right_image)

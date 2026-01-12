@@ -668,7 +668,7 @@ class BaseCamera(BaseInstrument):
             Union[int, float, None]: The minimum exposure time value, or None
                 if not specified in the configuration.
         """
-        return self.config.get("min_val")
+        return self.config.get("exposure", {}).get("min_val", 0)
 
     @cached_property
     def max_exposure(self):
@@ -680,7 +680,7 @@ class BaseCamera(BaseInstrument):
             Union[int, float, None]: The maximum exposure time value, or None
                 if not specified in the configuration.
         """
-        return self.config.get("max_val")
+        return self.config.get("exposure", {}).get("max_val", 100)
 
 
 @define

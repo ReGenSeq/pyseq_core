@@ -35,6 +35,7 @@ ROIType = Type[ROI]
 @define
 class TestCOM(BaseCOM):
     # open: bool = field(default=False)
+    __test__ = False  # Add attribute so pytest doesn't try to collect it
 
     async def connect(self):
         async with self.lock:
