@@ -118,7 +118,7 @@ class BaseStage(BaseInstrument):
         Returns:
             Union[float, int]: The minimum position.
         """
-        return self.config.get("min_val")
+        return self.config.get("position", {}).get("min_val")
 
     @cached_property
     def max_position(self) -> Union[float, int]:
@@ -130,7 +130,7 @@ class BaseStage(BaseInstrument):
         Returns:
             Union[float, int]: The maximum position.
         """
-        return self.config.get("max_val")
+        return self.config.get("position", {}).get("max_val")
 
     @abstractmethod
     async def move(self, positiion):
