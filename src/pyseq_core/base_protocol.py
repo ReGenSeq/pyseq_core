@@ -139,30 +139,28 @@ class BaseStagePosition(BaseModel):
     y_last: int
     z_init: int
     nz: int = -1  # Updated by experiment config NOT protocol
-    z_step: PositiveInt = HW_CONFIG["ZStage"][
-        "step"
-    ]  # Not a cached_property because want to change easily
-    x_overlap: NonNegativeFloat = 0.0
-    y_overlap: NonNegativeFloat = 0.0
+    # Not a cached_property because want to change easily
+    z_step: PositiveInt = HW_CONFIG["ZStage"]["step"]
+    overlap: NonNegativeFloat = 0.0  # in microns
 
     @computed_field
     @property
-    def x(self) -> PositiveInt:
+    def x(self) -> int:
         return self.x_init
 
     @computed_field
     @property
-    def y(self) -> PositiveInt:
+    def y(self) -> int:
         return self.y_init
 
     @computed_field
     @property
-    def z(self) -> PositiveInt:
+    def z(self) -> int:
         return self.z_init
 
     @computed_field
     @cached_property
-    def x_step(self) -> PositiveInt:
+    def x_step(self) -> int:
         return HW_CONFIG["XStage"]["step"]
 
     @computed_field
@@ -170,34 +168,48 @@ class BaseStagePosition(BaseModel):
     def y_step(self) -> int:
         return HW_CONFIG["YStage"]["step"]
 
+    @cached_property
+    def x_spum(self) -> float:
+        return HW_CONFIG["XStage"]["spum"]
+
+    @cached_property
+    def y_spum(self) -> float:
+        return HW_CONFIG["YStage"]["spum"]
+
+    @cached_property
+    def z_spum(self) -> float:
+        return HW_CONFIG["ZStage"]["spum"]
+
     @computed_field
     @property
     def nx(self) -> PositiveInt:
-        return ceil(abs(self.x_last - self.x_init) / (self.x_step - self.x_overlap))
+        nx = abs(self.x_last - self.x_init) / (self.x_step - self.overlap * self.x_spum)
+        return ceil(nx)
 
     @computed_field
     @property
     def ny(self) -> PositiveInt:
-        return ceil(abs(self.y_last - self.y_init) / (self.y_step - self.y_overlap))
+        ny = abs(self.y_last - self.y_init) / (self.y_step - self.overlap * self.y_spum)
+        return ceil(ny)
 
     @computed_field
     @property
-    def x_middle(self) -> PositiveInt:
+    def x_middle(self) -> int:
         return int((self.x_last - self.x_init) / 2 + self.x_init)
 
     @computed_field
     @property
-    def y_middle(self) -> PositiveInt:
+    def y_middle(self) -> int:
         return int((self.y_last - self.y_init) / 2 + self.y_init)
 
     @computed_field
     @property
-    def z_middle(self) -> PositiveInt:
+    def z_middle(self) -> int:
         return int((self.z_last - self.z_init) / 2 + self.z_init)
 
     @computed_field
     @property
-    def z_last(self) -> PositiveInt:
+    def z_last(self) -> int:
         return self.z_init + self.z_step * self.nz
 
     @computed_field
@@ -217,17 +229,17 @@ class BaseStagePosition(BaseModel):
 
     @field_validator("x_init", "x_last", mode="after")
     @classmethod
-    def validate_x_pos(cls, value: int) -> int:
+    def validate_x_pos(cls, value: Union[int, float]) -> Union[int, float]:
         return validate_min_max("position", value, HW_CONFIG["XStage"])
 
     @field_validator("y_init", "y_last", mode="after")
     @classmethod
-    def validate_y_pos(cls, value: int) -> int:
+    def validate_y_pos(cls, value: Union[int, float]) -> Union[int, float]:
         return validate_min_max("position", value, HW_CONFIG["YStage"])
 
     @field_validator("z_init", mode="after")
     @classmethod
-    def validate_z_pos(cls, value: int) -> int:
+    def validate_z_pos(cls, value: Union[int, float]) -> Union[int, float]:
         return validate_min_max("position", value, HW_CONFIG["ZStage"])
 
     @model_validator(mode="after")
@@ -264,6 +276,7 @@ class StageFactory:
     def factory(cls, exp_config: dict = {}) -> Type[BaseStagePosition]:
         config = exp_config.get("stage", {})
         config.update({"nz": exp_config["image"]["nz"]})
+        config.update({"overlap": exp_config["image"]["overlap"]})
 
         ExtraStageParams = create_model("ExtraStageParams", **custom_params(config))
 

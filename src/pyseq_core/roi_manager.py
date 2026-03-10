@@ -26,7 +26,7 @@ ROIType = Type[DefaultROI]
 def read_roi_config(
     flowcells: str,
     config_path: str,
-    exp_config: dict = None,
+    exp_config: dict = {},
     custom_roi_stage: Callable[[str, Union[int, str], Any], ROIType] = None,
 ) -> list[ROIType]:
     """Read ROI toml file and return list of ROIs.
@@ -251,9 +251,6 @@ class ROIManager:
         Args:
             flowcell (str): The name of the flowcell to wait for ROIs on.
         """
-
-        def roi_on_flowcell(flowcell):
-            return len(self.rois(flowcell)) > 0
 
         async with self.roi_condition:
             if len(self.rois(flowcell)) == 0:

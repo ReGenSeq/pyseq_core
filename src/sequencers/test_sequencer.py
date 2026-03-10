@@ -18,7 +18,7 @@ from pyseq_core.base_instruments import (
     BaseValve,
     BaseTemperatureController,
 )
-from pyseq_core.utils import DEFAULT_CONFIG
+from pyseq_core.utils import DEFAULT_CONFIG, HW_CONFIG
 from pyseq_core.base_com import BaseCOM
 from typing import Literal, Type, Union
 from attrs import define, field
@@ -297,11 +297,11 @@ class TestMicroscope(BaseMicroscope):
                 "Camera_558_687": TestCamera("Camera_558_687"),
                 "Camera_610_740": TestCamera("Camera_610_740"),
             },
-            "FilterWheel": {
+            "FilterWheels": {
                 "red": TestFilterWheel("red", com=COMS_DICT["redFilterWheel"]),
                 "green": TestFilterWheel("green", com=COMS_DICT["greenFilterWheel"]),
             },
-            "Laser": {
+            "Lasers": {
                 "red": TestLaser("red", com=COMS_DICT["redLaser"]),
                 "green": TestLaser("green", com=COMS_DICT["greenLaser"]),
             },
@@ -405,8 +405,8 @@ class TestMicroscope(BaseMicroscope):
         params = params.model_dump()[mode]["optics"]
         _ = []
         for color in ["red", "green"]:
-            _.append(self.Laser[color].set_power(params["power"][color]))
-            _.append(self.FilterWheel[color].set_filter(params["filter"][color]))
+            _.append(self.Lasers[color].set_power(params["power"][color]))
+            _.append(self.FilterWheels[color].set_filter(params["filter"][color]))
 
         if mode in ["image", "focus"]:
             for c in self.Camera:
@@ -457,7 +457,8 @@ class TestSequencer(BaseSequencer):
     # async def _configure(self, exp_config):
     #     LOGGER.debug(f"Configuring {self.name}")
 
-    def custom_roi_stage(self, flowcell: Union[str, int], **kwargs) -> ROIType:
+    @staticmethod
+    def custom_roi_stage(flowcell: Union[str, int], **kwargs) -> ROIType:
         """Take LLx, LLy, URx, URy coordinates and return stage position parameters."""
         LLx = kwargs.pop("LLx") * 100
         LLy = kwargs.pop("LLy") * 100
@@ -465,11 +466,11 @@ class TestSequencer(BaseSequencer):
         URy = kwargs.pop("URy") * 100
 
         # x, y, Steps Per UMicron
-        x_spum = self._config["XStage"]["spum"]
-        y_spum = self._config["YStage"]["spum"]
+        x_spum = HW_CONFIG["XStage"]["spum"]
+        y_spum = HW_CONFIG["YStage"]["spum"]
         # x, y origin
-        x_origin = self._config["XStage"]["origin"][flowcell]
-        y_origin = self._config["YStage"]["origin"]
+        x_origin = HW_CONFIG["XStage"]["origin"][flowcell]
+        y_origin = HW_CONFIG["YStage"]["origin"]
         # x_origin = self.microscope.XStage.config["origin"][fc]
         # y_origin = self.microscope.YStage.config["origin"]
 

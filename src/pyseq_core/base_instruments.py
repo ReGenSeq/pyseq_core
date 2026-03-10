@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from pyseq_core.utils import HW_CONFIG
 from pyseq_core.base_com import BaseCOM
 from attrs import define, field
-from typing import Union
+from typing import Union, Awaitable
 from functools import cached_property
 import asyncio
 
@@ -32,7 +32,7 @@ class BaseInstrument(ABC):
     def config(self) -> dict:
         return HW_CONFIG[self.name]
 
-    def connect(self) -> bool:
+    def connect(self) -> Awaitable[bool]:
         return self.com.connect()
 
     async def command(self, command: Union[str, dict], **kwargs):
@@ -113,7 +113,7 @@ class BaseStage(BaseInstrument):
         """The minimum allowed position for the stage.
 
         This value is retrieved from the instrument's configuration settings
-        under the key "min_val".
+        under the key "position":"min_val".
 
         Returns:
             Union[float, int]: The minimum position.
@@ -125,12 +125,36 @@ class BaseStage(BaseInstrument):
         """The maximum allowed position for the stage.
 
         This value is retrieved from the instrument's configuration settings
-        under the key "max_val".
+        under the key "position":"max_val".
 
         Returns:
             Union[float, int]: The maximum position.
         """
         return self.config.get("position", {}).get("max_val")
+
+    @cached_property
+    def step(self) -> Union[float, int]:
+        """Stage steps between image tiles
+
+        This value is retrieved from the instrument's configuration settings
+        under the key "step".
+
+        Returns:
+            Union[float, int]: Default step size between tiles
+        """
+        return self.config.get("step", 1)
+
+    @cached_property
+    def spum(self) -> Union[float, int]:
+        """Stage steps per micron
+
+        This value is retrieved from the instrument's configuration settings
+        under the key "spum".
+
+        Returns:
+            Union[float, int]: Step per micron for stage
+        """
+        return self.config.get("spum", 1.0)
 
     @abstractmethod
     async def move(self, positiion):
