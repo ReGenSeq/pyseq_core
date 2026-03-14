@@ -140,14 +140,17 @@ class DCAMException(Exception):
 #
 # Initialization
 #
-try:
+##try:
+##    dcam = ctypes.windll.dcamapi
+##    temp = ctypes.c_int32(0)
+##    if dcam.dcam_init(None, ctypes.byref(temp), None) != DCAMERR_NOERROR:
+##        raise DCAMException("DCAM initialization failed.")
+##    n_cameras = temp.value
+##except AttributeError:
+##    warnings.warn("DCAM is not installed")
+def get_dcam():
+    global dcam
     dcam = ctypes.windll.dcamapi
-    temp = ctypes.c_int32(0)
-    if dcam.dcam_init(None, ctypes.byref(temp), None) != DCAMERR_NOERROR:
-        raise DCAMException("DCAM initialization failed.")
-    n_cameras = temp.value
-except AttributeError:
-    warnings.warn("DCAM is not installed")
 
 
 ## HCamData
@@ -170,7 +173,7 @@ class HCamData:
     #
     def __init__(self, size):
         self.np_array = np.ascontiguousarray(
-            np.empty(np.int(size / 2), dtype=np.uint16)
+            np.empty(int(size / 2), dtype=np.uint16)
         )
         self.size = size
 
@@ -230,6 +233,9 @@ class HamamatsuCamera:
          - camera_id (int): Either 0 or 1.
          - logger (logger): Logger used for messaging.
         """
+
+        if "dcam" not in globals():
+            get_dcam()
 
         self.buffer_index = 0
         self.camera_id = camera_id
@@ -809,7 +815,7 @@ class HamamatsuCamera:
         # Check that we have not acquired more frames than we can store in our buffer.
         # Keep track of the maximum backlog.
         cur_frame_number = f_count.value
-        self.message("current frame number = {cur_frame_number}")
+        self.message(f"current frame number = {cur_frame_number}")
         backlog = cur_frame_number - self.last_frame_number
         if backlog > self.number_image_buffers:
             self.message(
@@ -969,7 +975,7 @@ class HamamatsuCamera:
         error = dcam.dcam_allocframe(
             self.camera_handle, ctypes.c_int32(self.number_image_buffers)
         )
-        self.message("allocFrame, {error}")
+        self.message(f"allocFrame, {error}")
 
         return error
 

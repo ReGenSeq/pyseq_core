@@ -373,15 +373,15 @@ BaseOpticsParams = Type[OpticsParams]
 
 class ImageParams(BaseModel):
     optics: OpticsParams | None
-    output: DirectoryPath | None
+    image_dir: DirectoryPath | None
     nz: int | None
 
     @classmethod
     def factory(cls, exp_config: dict) -> Self:
         optics = OpticsParams(**exp_config["image"]["optics"])
-        output = exp_config["experiment"].get("images_path", ".")
+        image_dir = exp_config["experiment"].get("images_path", ".")
         nz = exp_config["image"]["nz"]
-        return cls(optics=optics, output=output, nz=nz)
+        return cls(optics=optics, image_dir=image_dir, nz=nz)
 
 
 # def ImageParamsFactory(exp_config: dict) -> BaseModel:

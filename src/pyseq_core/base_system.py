@@ -165,6 +165,11 @@ class BaseSystem(ABC):
             await self._queue.get()
             self._queue.task_done()
 
+    def connect(self):
+        """Connect to instruments."""
+        description = f"Connect to {self.name} instruments"
+        self.add_task(description, self._connect)
+        
     def initialize(self):
         """Initialize the system."""
         description = f"Initialize {self.name}"
@@ -215,16 +220,16 @@ class BaseSystem(ABC):
             if not self.await_task.done():
                 await_task.cancel()
 
-    async def _initialize(self):
-        """Connect to instruments and initialize system."""
-
+    async def _connect(self):
         LOGGER.info(f"{self.name} Connecting to instruments")
         _ = []
         for instrument in self.iter_instruments:
             if instrument.com is not None:
                 _.append(instrument.connect())
-        await asyncio.gather(*_)
+        await asyncio.gather(*_)        
 
+    async def _initialize(self):
+        """Connect to instruments and initialize system."""
         LOGGER.info(f"Initializing {self.name}")
         _ = []
         for instrument in self.iter_instruments:
