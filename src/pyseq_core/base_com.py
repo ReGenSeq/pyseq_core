@@ -34,16 +34,16 @@ class BaseCOM(ABC):
         return HW_CONFIG[self.name]["com"]
 
     @abstractmethod
-    async def connect(self) -> Union[str, None]:
+    async def connect(self) -> bool:
         """
         Asynchronously establishes a connection to the communication interface.
 
         Returns:
-            str: Message if the connection is successful or already exists, otherwise None.
+            bool: True if connection is successful, otherwise False.
         """
         async with self.lock:
             self._connected = True
-            pass
+        return self._connected
 
     @abstractmethod
     async def command(self, command: str, read: bool = True) -> Union[str, dict]:

@@ -46,6 +46,8 @@ from pathlib import Path
 from warnings import warn
 import asyncio
 import logging
+from datetime import datetime
+from functools import cached_property
 
 
 LOGGER = logging.getLogger("PySeq")
@@ -163,6 +165,11 @@ class BaseSystem(ABC):
             await self._queue.get()
             self._queue.task_done()
 
+    def connect(self):
+        """Connect to instruments."""
+        description = f"Connect to {self.name} instruments"
+        self.add_task(description, self._connect)
+        
     def initialize(self):
         """Initialize the system."""
         description = f"Initialize {self.name}"
@@ -213,16 +220,16 @@ class BaseSystem(ABC):
             if not self.await_task.done():
                 await_task.cancel()
 
-    async def _initialize(self):
-        """Connect to instruments and initialize system."""
-
+    async def _connect(self):
         LOGGER.info(f"{self.name} Connecting to instruments")
         _ = []
         for instrument in self.iter_instruments:
             if instrument.com is not None:
                 _.append(instrument.connect())
-        await asyncio.gather(*_)
+        await asyncio.gather(*_)        
 
+    async def _initialize(self):
+        """Connect to instruments and initialize system."""
         LOGGER.info(f"Initializing {self.name}")
         _ = []
         for instrument in self.iter_instruments:
@@ -285,50 +292,52 @@ class BaseMicroscope(BaseSystem):
     name: str = field(default="microscope")
     lock_condition: asyncio.Lock = field(factory=asyncio.Lock)
 
+    @cached_property
+    def resolution(self) -> float:
+        return self.config["resolution"]
+
     @property
     def YStage(self) -> BaseStage:
-        """Abstract property for the YStage."""
-        return self.instruments.get("YStage", None)
+        """Property for the YStage."""
+        return self.instruments.get("YStage")
 
     @property
     def XStage(self) -> BaseStage:
-        """Abstract property for the XStage."""
-        return self.instruments.get("XStage", None)
+        """Property for the XStage."""
+        return self.instruments.get("XStage")
 
     @property
     def ZStage(self) -> BaseStage:
-        """Abstract property for the ZStage."""
-        return self.instruments.get("ZStage", None)
+        """Property for the ZStage."""
+        return self.instruments.get("ZStage")
 
     @property
-    def ObjStage(self) -> BaseStage:
-        """Abstract property for the ObjStage."""
-        return self.instruments.get("ObjStage", None)
+    def TiltStage(self) -> BaseStage:
+        """Property for the TiltStage."""
+        return self.instruments.get("TiltStage")
 
     @property
     def Shutter(self) -> BaseShutter:
-        """Abstract property for the Shutter."""
-        return self.instruments.get("Shutter", None)
+        """Property for the Shutter."""
+        return self.instruments.get("Shutter")
 
     @property
-    def FilterWheel(self) -> Dict[str, BaseFilter]:
-        """Abstract property for the FilterWheel.
-        Return a dictionary of FilterWheel with their respective laser color lines."""
-        return self.instruments.get("FilterWheel", {})
+    def Camera(self) -> BaseCamera:
+        """Property for the cameras."""
+        return self.instruments.get("Camera", None)
 
     @property
-    def Laser(self) -> Dict[str, BaseLaser]:
-        """Abstract property for the lasers.
+    def FilterWheels(self) -> Dict[str, BaseFilter]:
+        """Property for the FilterWheels.
+        Return a dictionary of FilterWheels with their respective laser color lines."""
+        return self.instruments.get("FilterWheels", {})
+
+    @property
+    def Lasers(self) -> Dict[str, BaseLaser]:
+        """Property for the lasers.
         Return a dictionary of lasers with their respective colors.
         """
-        return self.instruments.get("Laser", {})
-
-    @property
-    def Camera(self) -> Dict[str, BaseCamera]:
-        """Abstract property for the cameras.
-        Return a dictionary of cameras with their respective names.
-        """
-        return self.instruments.get("Camera", {})
+        return self.instruments.get("Lasers", {})
 
     @abstractmethod
     async def _capture(self, filename):
@@ -346,7 +355,7 @@ class BaseMicroscope(BaseSystem):
         pass
 
     @abstractmethod
-    async def _expose_scan(self, roi: ROIType, duration: Union[float, int]):
+    async def _expose_scan(self, roi: ROIType, duration: Union[float, int] = 0):
         """Scan over the specified region of interest (ROI) with laser."""
         pass
 
@@ -434,12 +443,42 @@ class BaseMicroscope(BaseSystem):
 
 
 def listerize_roi(func):
+    """Wrapper to connvert single ROI or dictionary of ROIs to a list"""
+
     def wrap(self, roi: Union[ROIType, List[ROIType]] = []):
         if not isinstance(roi, list):
             roi = [roi]
         if len(roi) == 0:
             roi = list(self.ROIs.values())
         return func(self, roi)
+
+    return wrap
+
+
+def timestamp(fmt: str = "%Y%m%d%H%M") -> str:
+    """Return timestamp as string"""
+    current_datetime = datetime.now()
+    return current_datetime.strftime(fmt)
+
+
+def check_name(func, fmt: str = "%Y%m%d%H%M"):
+    """Wrapper to check for image name.
+
+    Can override roi.name with name arg.
+    If no name found use current datetime formatted as fmt
+    """
+
+    def wrap(self, roi: ROIType = None, name: str = "", **kwargs):
+        if len(name) > 0:
+            pass
+        elif roi is not None:
+            try:
+                name = roi.name
+            except AttributeError:
+                name = timestamp()
+        else:
+            name = timestamp()
+        return func(self, roi=roi, name=name, **kwargs)
 
     return wrap
 
@@ -831,7 +870,7 @@ class BaseSequencer(BaseSystem):
         # Configure sequencer instruments
         _ = []
         for instrument in self.iter_instruments:
-            _.append(instrument.initialize())
+            _.append(instrument.configure())
         await asyncio.gather(*_)
 
         # Configure sub system instruments
@@ -1004,11 +1043,7 @@ class BaseSequencer(BaseSystem):
         exp_config = read_user_config(exp_config_path)
         # Set up paths for imaging, focusin, and logging and update exp_config
         exp_config = setup_experiment_path(exp_config, exp_name)
-        (
-            update_logger(
-                exp_config["logging"], exp_config["rotate_logs"]["rotate_logs"]
-            ),
-        )
+        update_logger(exp_config["logging"], exp_config["rotate_logs"]["rotate_logs"])
 
         # Reset rois and reagents
         flowcells = self._get_systems_list(fc_names)
@@ -1017,6 +1052,7 @@ class BaseSequencer(BaseSystem):
             fc.ROIs = dict()
             fc.reagents = dict()
 
+        # Configure Sequencer
         await self._configure(exp_config)
 
         # Add reagents from experiment config to flowcells
@@ -1103,6 +1139,7 @@ class BaseSequencer(BaseSystem):
                         else:
                             self.expose(flowcells=flowcell)
 
+    @staticmethod
     @abstractmethod
     def custom_roi_stage(flowcell: Union[str, int], **kwargs) -> dict:
-        pass
+        return {}

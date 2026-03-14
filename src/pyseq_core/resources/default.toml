@@ -11,6 +11,8 @@ protocol_path = ""
 
 [image]
 nz = 0
+overlap = 0 
+
 [image.optics]
 
 [expose]
