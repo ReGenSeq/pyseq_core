@@ -11,6 +11,7 @@ imaging = {port=10, flow_rate=100, pause_time=10}
 
 [image]
 nz = 2
+
 [image.optics]
 power.red = 200
 power.green = 200
@@ -18,7 +19,7 @@ filter.red = "open"
 filter.green = "open"
 
 [expose]
-n_exposures = 0
+expose = 0
 [expose.optics]
 power.green = 200
 filter.green = "open"

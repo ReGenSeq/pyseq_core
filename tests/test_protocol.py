@@ -3,6 +3,8 @@ import importlib
 from shutil import copyfile
 from pyseq_core.utils import deep_merge, DEFAULT_CONFIG
 import tomlkit
+from copy import deepcopy
+from typing import Any
 
 
 def check_reagents(exp_conf, reagents):
@@ -26,33 +28,29 @@ def check_reagents(exp_conf, reagents):
         #     assert reagents[reagent][key] == value, f"Reagent {reagent} {key} mismatch: {reagents[reagent][key]} != {value}"
 
 
-def dict_recursive_check(d_in: dict, d_out: dict):
-    for key, val in d_in.items():
-        # try:
-        if isinstance(val, dict):
-            dict_recursive_check(val, d_out[key])
-        else:
-            val_out = d_out[key]
-            if not val == val_out:
-                print(f"Mismatch for key '{key}': {val} != {val_out}")
-                assert val == val_out
-    #     # except KeyError:
-    # #     #     return False
-    #     except AssertionError:
-    #         return False
+def dict_recursive_check(d_in: Any, d_out: Any):
+    if isinstance(d_in, dict):
+        for key, val in d_in.items():
+            if isinstance(val, dict):
+                dict_recursive_check(val, d_out[key])
+            else:
+                val_out = d_out[key]
+                if not val == val_out:
+                    print(f"Mismatch for key '{key}': {val} != {val_out}")
+                    assert val == val_out
     return True
 
 
-def check_roi_params(exp_conf, in_params, out_params):
+def check_roi_params(in_params, out_params):
     for mode in ["image", "focus", "expose"]:
         # update and merge user parameters into default parameters
-        defaults = DEFAULT_CONFIG[
-            mode
-        ].copy()  # Somehow DEFAULT_CONFIG is updated with experiment configuration?
+        # Somehow DEFAULT_CONFIG is updated with experiment configuration?
+        defaults = deepcopy(DEFAULT_CONFIG[mode])
         roi_in = deep_merge(in_params, defaults)
         try:
             assert dict_recursive_check(roi_in.get(mode, {}), out_params[mode])
-        except AssertionError:
+        # except AssertionError:
+        except Exception:
             fc = out_params["stage"]["flowcell"]
             name = out_params["name"]
             print(f"flowcell={fc}, roi={name}")
@@ -86,7 +84,7 @@ def check_ROIs(exp_conf, ROIs):
 
     for name, params in ROIs.items():
         fc = params.stage.flowcell
-        check_roi_params(exp_conf, roi_table[fc][name], params.model_dump())
+        check_roi_params(roi_table[fc][name], params.model_dump())
 
 
 @pytest.mark.asyncio
