@@ -2,15 +2,16 @@ from __future__ import annotations
 from typing import Union, Dict, TYPE_CHECKING
 from attrs import define, field
 from warnings import warn
-from pydantic import BaseModel, create_model, model_validator
+from pydantic import BaseModel, model_validator
 from pyseq_core.utils import HW_CONFIG
 from pyseq_core.base_protocol import (
+    ConfigModelFactory,
     validate_in,
     validate_min_max,
-    custom_params,
     recursive_validate,
 )
 import logging
+from copy import deepcopy
 
 if TYPE_CHECKING:
     from pyseq_core.base_system import BaseFlowCell
@@ -59,7 +60,8 @@ class BaseReagent(BaseModel):
             BaseReagent: The validated `BaseReagent` instance.
         """
         validate_in("port", self.port, HW_CONFIG[f"Valve{self.flowcell}"])
-        validate_min_max("flow_rate", self.flow_rate, HW_CONFIG[f"Pump{self.flowcell}"])
+        # validate_min_max("flow_rate", self.flow_rate, HW_CONFIG[f"Pump{self.flowcell}"])
+        recursive_validate(self.model_dump(), HW_CONFIG[f"Pump{self.flowcell}"])
         return self
 
 
@@ -79,7 +81,7 @@ class ReagentsManager:
             to `BaseReagent` objects or their dictionary representations).
     """
 
-    flowcells: Dict[Union[str, int], BaseFlowCell] = field()
+    flowcells: Dict[Union[str, int], BaseFlowCell] = field(factory=dict)
 
     def reagents(self, flowcell: Union[str, int]) -> Dict[Union[str, int], BaseReagent]:
         """Retrieves the dictionary of reagents for a specific flowcell.
@@ -181,7 +183,7 @@ class ReagentsManager:
         return True
 
     def add(
-        self, reagent: BaseReagent = None, **kwargs
+        self, reagent: Union[BaseReagent, None] = None, **kwargs
     ) -> Dict[Union[str, int], BaseReagent]:
         """Adds a reagent to a specific flowcell.
 
@@ -347,18 +349,12 @@ class ReagentsManager:
                 - `reagent_name: {port: port_number, flow_rate: flow_rate, ...}` (dict)
         """
 
-        # Custom Reagent class with extra pump parameters
-        ExtraPumpParams = create_model(
-            "ExtraPumpParams", **custom_params(config["pump"])
-        )
+        ExpConfigFactory = ConfigModelFactory(config)
+        Reagent = ExpConfigFactory.get_model("pump", BaseReagent)
 
-        class Reagent(ExtraPumpParams, BaseReagent):
-            @model_validator(mode="after")
-            def validate_pump_params(self):
-                recursive_validate(self.model_dump(), HW_CONFIG[f"Pump{flowcell}"])
-                return self
+        reagent_config = deepcopy(config.get("reagents", {}))
 
-        for name, params in config["reagents"].items():
+        for name, params in reagent_config.items():
             if isinstance(params, int):
                 # reagent_name: port number
                 params = {"flowcell": flowcell, "name": name, "port": params}

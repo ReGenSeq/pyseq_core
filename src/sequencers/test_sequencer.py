@@ -2,12 +2,10 @@ from pyseq_core.base_system import (
     BaseFlowCell,
     BaseMicroscope,
     BaseSequencer,
-    ROIFactory,
 )
-from pyseq_core.base_protocol import BaseOpticsParams
+from pyseq_core.base_protocol import CUSTOM_ROI, BaseROI, OpticsParams
 from pyseq_core.utils import map_coms
 
-# from pyseq_core.baseROI import BaseROI, TestROI
 from pyseq_core.base_instruments import (
     BaseCamera,
     BaseShutter,
@@ -18,9 +16,9 @@ from pyseq_core.base_instruments import (
     BaseValve,
     BaseTemperatureController,
 )
-from pyseq_core.utils import DEFAULT_CONFIG, HW_CONFIG
+from pyseq_core.utils import HW_CONFIG
 from pyseq_core.base_com import BaseCOM
-from typing import Literal, Type, Union
+from typing import Union
 from attrs import define, field
 import logging
 import asyncio
@@ -28,8 +26,8 @@ import asyncio
 
 LOGGER = logging.getLogger("PySeq")
 
-ROI = ROIFactory.factory(DEFAULT_CONFIG)
-ROIType = Type[ROI]
+# ROI = ROIFactory.factory(DEFAULT_CONFIG)
+# ROIType = Type[ROI]
 
 
 @define
@@ -316,11 +314,10 @@ class TestMicroscope(BaseMicroscope):
     async def _configure(self, exp_config):
         LOGGER.debug(f"Configure {self.name}")
 
-    async def _capture(self, roi: ROIType, im_name: str):
+    async def _capture(self, roi: BaseROI, im_name: str):
         """Capture an image and save it to the specified filename."""
 
         LOGGER.debug(f"Acquire {im_name}")
-        print(self.Shutter.open)
         await self.Shutter.open()
         await self.YStage.move(roi.stage.y_last)
         await self.Shutter.close()
@@ -330,7 +327,7 @@ class TestMicroscope(BaseMicroscope):
         _.append(self.YStage.move(roi.stage.y_init))
         await asyncio.gather(*_)
 
-    async def _z_stack(self, roi: ROIType, im_name: str):
+    async def _z_stack(self, roi: BaseROI, im_name: str):
         """Perform a z-stack acquisition."""
 
         direction = roi.stage.z_direction
@@ -347,7 +344,7 @@ class TestMicroscope(BaseMicroscope):
             await self.ZStage.move(z)
             await self._capture(roi, f"{im_name}_z{z}")
 
-    async def _scan(self, roi: ROIType, im_name: str = ""):
+    async def _scan(self, roi: BaseROI, im_name: str = ""):
         """Perform a scan over the specified region of interest (ROI)."""
 
         x_init = roi.stage.x_init
@@ -363,13 +360,13 @@ class TestMicroscope(BaseMicroscope):
             await self.XStage.move(x)
             await self._z_stack(roi, f"{im_name}_x{x}")
 
-    async def _expose_scan(self, roi: ROIType):
+    async def _expose_scan(self, roi: BaseROI):
         """Async expose the sample for a specified duration without imaging."""
 
         x_init = roi.stage.x_init
         x_last = roi.stage.x_last
         x_step = roi.stage.x_step * roi.stage.x_direction
-        n_exposures = roi.expose.n_exposures
+        n_exposures = roi.expose.expose
         LOGGER.debug(
             f"Exposing {roi.name}: XStage: {x_init} to {x_last} in {x_step} increments"
         )
@@ -387,8 +384,11 @@ class TestMicroscope(BaseMicroscope):
         LOGGER.debug(f"Fake finding focus using routine {roi.focus.routine}.")
         LOGGER.debug(f"Saving focus data to {roi.focus.output}.")
         roi.focus.z_focus = 0
+        roi.stage.z_init = 0
 
-    async def _move(self, roi: ROIType):
+        return roi
+
+    async def _move(self, roi: BaseROI):
         """Move the stage ROI x,y,z coordinates."""
         LOGGER.debug(f"Moving to x={roi.x}, y={roi.y}, z={roi.z}")
         await asyncio.gather(
@@ -397,18 +397,18 @@ class TestMicroscope(BaseMicroscope):
             self.ZStage.move(roi.z),
         )
 
-    async def _set_parameters(
-        self, params: BaseOpticsParams, mode: Literal["image", "focus", "expose"]
-    ):
+    async def _set_parameters(self, params: OpticsParams):
         """Set the parameters to expose/image the ROI."""
 
-        params = params.model_dump()[mode]["optics"]
+        LOGGER.debug(params)
+
+        params = params.model_dump()
         _ = []
         for color in ["red", "green"]:
             _.append(self.Lasers[color].set_power(params["power"][color]))
             _.append(self.FilterWheels[color].set_filter(params["filter"][color]))
 
-        if mode in ["image", "focus"]:
+        if "exposure" in params:
             for c in self.Camera:
                 _.append(self.Camera[c].set_exposure(params["exposure"][c]))
         await asyncio.gather(*_)
@@ -458,12 +458,17 @@ class TestSequencer(BaseSequencer):
     #     LOGGER.debug(f"Configuring {self.name}")
 
     @staticmethod
-    def custom_roi_stage(flowcell: Union[str, int], **kwargs) -> ROIType:
+    def custom_roi_stage(roi: Union[CUSTOM_ROI, None] = None, **kwargs) -> dict:
         """Take LLx, LLy, URx, URy coordinates and return stage position parameters."""
-        LLx = kwargs.pop("LLx") * 100
-        LLy = kwargs.pop("LLy") * 100
-        URx = kwargs.pop("URx") * 100
-        URy = kwargs.pop("URy") * 100
+
+        if roi is None:
+            roi = CUSTOM_ROI(**kwargs)
+
+        flowcell = roi.flowcell
+        LLx = roi.LLx * 100
+        LLy = roi.LLy * 100
+        URx = roi.URx * 100
+        URy = roi.URy * 100
 
         # x, y, Steps Per UMicron
         x_spum = HW_CONFIG["XStage"]["spum"]
@@ -481,10 +486,11 @@ class TestSequencer(BaseSequencer):
 
         stage = {
             "flowcell": flowcell,
-            "x_init": x_init,
-            "x_last": x_last,
-            "y_init": y_init,
-            "y_last": y_last,
+            "x_init": int(x_init),
+            "x_last": int(x_last),
+            "y_init": int(y_init),
+            "y_last": int(y_last),
+            "overlap": roi.overlap,
         }
         stage.update(kwargs.pop("stage", {}))
         return stage

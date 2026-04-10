@@ -1,7 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from pyseq_core.utils import (
-    DEFAULT_CONFIG,
     HW_CONFIG,
     setup_experiment_path,
     update_logger,
@@ -24,11 +23,12 @@ from pyseq_core.base_protocol import (
     WaitCommand,
     UserCommand,
     TemperatureCommand,
+    PumpCommand,
+    CUSTOM_ROI,
 )
 from pyseq_core.base_protocol import (
-    ROIFactory,
-    SimpleStageType,
-    PumpCommandFactory,
+    SimpleStagePosition,
+    BaseROI,
 )
 from pyseq_core.base_protocol import (
     read_protocol,
@@ -39,7 +39,7 @@ from pyseq_core.base_protocol import (
 )
 from pyseq_core.reservation_system import ReservationSystem, reserve_microscope
 from pyseq_core.roi_manager import ROIManager, read_roi_config
-from typing import Dict, Union, List, Coroutine, Literal, Type
+from typing import Dict, Union, List, Coroutine, Literal
 from attrs import define, field
 from pydantic import ValidationError
 from pathlib import Path
@@ -51,13 +51,6 @@ from functools import cached_property
 
 
 LOGGER = logging.getLogger("PySeq")
-
-PumpCommand = PumpCommandFactory.factory(DEFAULT_CONFIG)
-PumpCommandType = Type[PumpCommand]
-
-
-ROI = ROIFactory.factory(DEFAULT_CONFIG)
-ROIType = Type[ROI]
 
 
 @define(kw_only=True)
@@ -124,9 +117,10 @@ class BaseSystem(ABC):
                     await self._current_task
                     LOGGER.debug(f"{self.name} :: Task {id} :: {description} finished")
                 except asyncio.CancelledError:
-                    LOGGER.warning(
-                        f"{self.name} :: Task {id} :: {description} cancelled"
-                    )
+                    if "Shutdown" not in description:
+                        LOGGER.warning(
+                            f"{self.name} :: Task {id} :: {description} cancelled"
+                        )
                 except Exception:
                     # Check the task status
                     task_exception = self._current_task.exception()
@@ -152,24 +146,26 @@ class BaseSystem(ABC):
     def cancel_task(self, command_id):
         """Cancel a task in the queue."""
         if command_id in self._queue_dict:
-            self._queue_dict[command_id][1] = False
-            description = self._queue_dict[command_id][0]
-            LOGGER.info(f"{self.name} :: Cancelled task {command_id} :: {description}")
+            if "Shutdown" not in self._queue_dict[command_id][0]:
+                self._queue_dict[command_id][1] = False
+                description = self._queue_dict[command_id][0]
+                LOGGER.info(
+                    f"{self.name} :: Cancelled task {command_id} :: {description}"
+                )
         else:
             LOGGER.warning(f"{self.name} :: Task {command_id} not found")
 
     async def clear_queue(self):
         for command_id in self._queue_dict:
             self.cancel_task(command_id)
-        while self._queue.qsize() > 0:
-            await self._queue.get()
-            self._queue.task_done()
+        # while self._queue.qsize() > 0:
+        #     self._queue.task_done()
 
     def connect(self):
         """Connect to instruments."""
         description = f"Connect to {self.name} instruments"
         self.add_task(description, self._connect)
-        
+
     def initialize(self):
         """Initialize the system."""
         description = f"Initialize {self.name}"
@@ -226,7 +222,7 @@ class BaseSystem(ABC):
         for instrument in self.iter_instruments:
             if instrument.com is not None:
                 _.append(instrument.connect())
-        await asyncio.gather(*_)        
+        await asyncio.gather(*_)
 
     async def _initialize(self):
         """Connect to instruments and initialize system."""
@@ -238,9 +234,8 @@ class BaseSystem(ABC):
 
     async def _shutdown(self):
         """Shutdown the system."""
-        LOGGER.info(f"Shutting down {self.name}")
 
-        # Cancel pending tasks
+        # Cancel pending tasks except shutdown
         await self.clear_queue()
 
         # Shutdown instruments safely
@@ -289,7 +284,7 @@ class BaseSystem(ABC):
 
 @define(kw_only=True)
 class BaseMicroscope(BaseSystem):
-    name: str = field(default="microscope")
+    name: str = field(default="Microscope")
     lock_condition: asyncio.Lock = field(factory=asyncio.Lock)
 
     @cached_property
@@ -350,29 +345,27 @@ class BaseMicroscope(BaseSystem):
         pass
 
     @abstractmethod
-    async def _scan(self, roi: ROIType):
+    async def _scan(self, roi: BaseROI):
         """Perform a scan over the specified region of interest (ROI)."""
         pass
 
     @abstractmethod
-    async def _expose_scan(self, roi: ROIType, duration: Union[float, int] = 0):
+    async def _expose_scan(self, roi: BaseROI, duration: Union[float, int] = 0):
         """Scan over the specified region of interest (ROI) with laser."""
         pass
 
     @abstractmethod
-    async def _move(self, roi: ROIType):
+    async def _move(self, roi: SimpleStagePosition):
         """Move the stage ROI x,y,z coordinates."""
         pass
 
     @abstractmethod
-    async def _set_parameters(
-        self, image_params: OpticsParams, mode: Literal["image", "focus", "expose"]
-    ):
+    async def _set_parameters(self, optic_params: OpticsParams):
         """Async set the parameters for the ROI."""
         pass
 
     @abstractmethod
-    async def _find_focus(self, roi: ROIType):
+    async def _find_focus(self, roi: BaseROI):
         """Async set the parameters for the ROI."""
         # Reset X & Y stage to initial position after finding focus
         # Save Z stage focus position to `ROI.focus.z_focus`
@@ -381,7 +374,7 @@ class BaseMicroscope(BaseSystem):
 
     @reserve_microscope
     async def _from_flowcell(
-        self, routine: Literal["image", "focus", "expose"], roi: List[ROIType]
+        self, routine: Literal["image", "focus", "expose"], roi: List[BaseROI]
     ):
         for r in roi:
             if routine in "image":
@@ -392,48 +385,51 @@ class BaseMicroscope(BaseSystem):
                 self.expose(r)
         await self._queue.join()
 
-    async def _focus(self, roi: ROIType):
+    async def _focus(self, roi: BaseROI):
         """Async find focus on roi."""
-        await self._set_parameters(roi, "focus")
+        await self._set_parameters(roi.focus.optics)
         await self._find_focus(roi)
 
-    async def _expose(self, roi: ROIType):
+    async def _expose(self, roi: BaseROI):
         """Async expose the sample for a specified duration without imaging."""
 
         await self._move(roi.stage)
-        await self._set_parameters(roi, "expose")
+        await self._set_parameters(roi.expose.optics)
         await self._expose_scan(roi)
 
-    async def _image(self, roi: ROIType) -> None:
+    async def _image(self, roi: BaseROI) -> None:
         """Async image ROIs."""
 
         await self._move(roi.stage)
-        if roi.focus.z_focus == -1:
-            await self._set_parameters(roi, "focus")
-            await self._find_focus(roi)
+        if roi.focus.z_focus is None:
+            await self._set_parameters(roi.focus.optics)
+            roi = await self._find_focus(roi)
         else:
             await self.ZStage.move(roi.focus.z_focus)
-        await self._set_parameters(roi, "image")
+        await self._set_parameters(roi.image.optics)
         await self._scan(roi)
 
-    def image(self, roi: ROIType) -> None:
+    def image(self, roi: BaseROI) -> None:
         """Acquire image from the specified region of interest (ROI)."""
         description = f"Image {roi.name}"
         return self.add_task(description, self._image, roi)
 
-    def expose(self, roi: ROIType) -> None:
+    def expose(self, roi: BaseROI) -> None:
         """Expose the sample to light without imaging."""
         description = f"Expose {roi.name}"
         return self.add_task(description, self._expose, roi)
 
-    def focus(self, roi: ROIType) -> None:
+    def focus(self, roi: BaseROI) -> None:
         """Autofocus on ROI."""
         description = f"Focusing on {roi.name}"
         return self.add_task(description, self._focus, roi)
 
-    def move(self, stage: SimpleStageType) -> None:
+    def move(self, stage: SimpleStagePosition) -> None:
         """Move the stage ROI x,y,z coordinates."""
-        description = f"Move x:{stage.x}, y:{stage.y}, z:{stage.z}"
+        description = "Move "
+        for k, v in stage.model_dump().items():
+            description += f"{k}:{v}, "
+        # description = f"Move x:{stage.x}, y:{stage.y}, z:{stage.z}"
         return self.add_task(description, self._move, stage)
 
     def set_parameters(self, roi_params: OpticsParams) -> None:
@@ -445,7 +441,7 @@ class BaseMicroscope(BaseSystem):
 def listerize_roi(func):
     """Wrapper to connvert single ROI or dictionary of ROIs to a list"""
 
-    def wrap(self, roi: Union[ROIType, List[ROIType]] = []):
+    def wrap(self, roi: Union[BaseROI, List[BaseROI]] = []):
         if not isinstance(roi, list):
             roi = [roi]
         if len(roi) == 0:
@@ -468,7 +464,7 @@ def check_name(func, fmt: str = "%Y%m%d%H%M"):
     If no name found use current datetime formatted as fmt
     """
 
-    def wrap(self, roi: ROIType = None, name: str = "", **kwargs):
+    def wrap(self, roi: BaseROI = None, name: str = "", **kwargs):
         if len(name) > 0:
             pass
         elif roi is not None:
@@ -593,19 +589,19 @@ class BaseFlowCell(BaseSystem):
         )
 
     @listerize_roi
-    def image(self, roi: Union[ROIType, List[ROIType]] = []) -> int:
+    def image(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Image specified ROIs or all ROIs on flowcell (default)."""
         description = f"Image {len(roi)} ROIs"
         self.add_task(description, self._roi_to_microscope, "image", roi)
 
     @listerize_roi
-    def focus(self, roi: Union[ROIType, List[ROIType]] = []) -> int:
+    def focus(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Focus on specified ROIs or all ROIs on flowcell (default)."""
         description = f"Focus on {len(roi)} ROIs"
         self.add_task(description, self._roi_to_microscope, "focus", roi)
 
     @listerize_roi
-    def expose(self, roi: Union[ROIType, List[ROIType]] = []) -> int:
+    def expose(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Expose specified ROIs or all ROIs on flowcell (default)."""
         description = f"Expose {len(roi)} ROIs"
         self.add_task(description, self._roi_to_microscope, "expose", roi)
@@ -652,7 +648,7 @@ class BaseFlowCell(BaseSystem):
 def get_roi(func):
     def wrap(
         self,
-        roi: Union[ROIType, List[ROIType]] = [],
+        roi: Union[BaseROI, List[BaseROI]] = [],
         flowcells: Union[str, List[str]] = None,
         **kwargs,
     ):
@@ -666,7 +662,7 @@ def get_roi(func):
             roi = [roi]
         elif len(kwargs) > 0:
             # put single ROI specified by kwargs into list
-            roi = [ROI(**kwargs)]
+            roi = [BaseROI(**kwargs)]
 
         # split ROIs into lists for specific flowcells
         _rois = {}
@@ -729,7 +725,7 @@ class BaseSequencer(BaseSystem):
     def pump(
         self,
         flowcells: Union[str, int] = None,
-        pump_command: PumpCommandType = None,
+        pump_command: Union[PumpCommand, None] = None,
         **kwargs,
     ):
         """Pump volume in uL from/to specified port at flow rate in ul/min on specified flow cell."""
@@ -814,8 +810,8 @@ class BaseSequencer(BaseSystem):
     @get_roi
     def image(
         self,
-        roi: Union[ROIType, List[ROIType]] = [],
-        flowcells: Union[str, List[str]] = None,
+        roi: Union[BaseROI, List[BaseROI]] = [],
+        flowcells: Union[str, List[str], None] = None,
         **kwargs,
     ):
         """Image ROIs."""
@@ -824,8 +820,8 @@ class BaseSequencer(BaseSystem):
     @get_roi
     def focus(
         self,
-        roi: Union[ROIType, List[ROIType]] = [],
-        flowcells: Union[str, List[str]] = None,
+        roi: Union[BaseROI, List[BaseROI]] = [],
+        flowcells: Union[str, List[str], None] = None,
         **kwargs,
     ):
         """Find focus z position in ROIs."""
@@ -834,8 +830,8 @@ class BaseSequencer(BaseSystem):
     @get_roi
     def expose(
         self,
-        roi: Union[ROIType, List[ROIType]] = [],
-        flowcells: Union[str, List[str]] = None,
+        roi: Union[BaseROI, List[BaseROI]] = [],
+        flowcells: Union[str, List[str], None] = None,
         **kwargs,
     ):
         """Expose ROIs to light without imaging."""
@@ -908,6 +904,11 @@ class BaseSequencer(BaseSystem):
         _systems = self._get_systems_list(systems)
         for s in _systems:
             s.shutdown()
+
+        """Shutdown the system."""
+        description = f"Shutdown {self.name}"
+        self.add_task(description, self._shutdown)
+
         # if len(systems) == 0:
         #     self._loop_stop = True
 
@@ -992,7 +993,11 @@ class BaseSequencer(BaseSystem):
     #     """Get the list of only enabled flowcells."""
     #     return [fc for fc in self._flowcells.values() if fc.enabled]
 
-    def add_rois(self, fc_names: str, roi_path: str) -> int:
+    def add_rois(
+        self,
+        fc_names: str,
+        roi_path: str = "",
+    ) -> int:
         flowcells = self._get_systems_list(fc_names)
 
         # Read roi file and get list of validated ROIs
@@ -1000,8 +1005,8 @@ class BaseSequencer(BaseSystem):
             rois = read_roi_config(
                 fc_names,
                 roi_path,
-                flowcells[0]._exp_config,
                 self.custom_roi_stage,
+                flowcells[0]._exp_config,
             )
         except ValidationError as e:
             LOGGER.error(e)
@@ -1010,10 +1015,16 @@ class BaseSequencer(BaseSystem):
         # Add rois to flowcells, keep track if error adding roi to flowcell
         was_roi_added = []
         for roi in rois:
-            was_roi_added.append(self._roi_manager.add(roi))
+            try:
+                was_roi_added.append(self._roi_manager.add(roi))
+            except Exception as e:
+                LOGGER.error(e)
+                was_roi_added.append(False)
         # Wake up flowcells waiting for ROIs if no errors
         if self._roi_manager.roi_condition.locked() and all(was_roi_added):
             self._roi_manager.roi_condition.notify_all()
+        elif not all(was_roi_added):
+            LOGGER.warning("Error adding ROIs, see log")
 
         return sum(was_roi_added)
 
@@ -1067,47 +1078,54 @@ class BaseSequencer(BaseSystem):
             LOGGER.info(f"Added {n_rois_added} ROIs")
 
         # Read protocol from experiment config
-        protocol = read_protocol(exp_config["experiment"]["protocol_path"])
         fprotocol = {}
+        continue_new_experiment = []
         for fc in flowcells:
             protocol = read_protocol(exp_config["experiment"]["protocol_path"])
-            fprotocol[fc.name] = format_protocol(fc.name, protocol, exp_config)
+            try:
+                fprotocol[fc.name] = format_protocol(fc.name, protocol, exp_config)
+                continue_new_experiment.append(True)
+            except RuntimeError:
+                continue_new_experiment.append(False)
 
-        # Check if reagents are needed
-        for fc in flowcells:
-            missing_reagents = need_reagents(fprotocol[fc.name], fc.reagents)
-            if missing_reagents > 0:
-                raise ValueError(
-                    f"Missing {missing_reagents} reagents for flowcell {fc.name}"
-                )
+        if all(continue_new_experiment):
+            # Check if reagents are needed
+            for fc in flowcells:
+                missing_reagents = need_reagents(fprotocol[fc.name], fc.reagents)
+                if missing_reagents > 0:
+                    LOGGER.error(
+                        f"Missing {missing_reagents} reagents for flowcell {fc.name}"
+                    )
+                    continue_new_experiment.append(False)
 
-        # Check status of systems
-        _ = []
-        for s in self._get_systems_list():
-            _.append(s._status())
-        _.append(self._status())
-        status = await asyncio.gather(*_)
-        if all(status):
-            all_systems_go = True
-        else:
-            warn("Some systems are not ready")
-            # TODO: get user confirmation to proceed if there are system issues
-            all_systems_go = True
+        if all(continue_new_experiment):
+            # Check status of systems
+            _ = []
+            for s in self._get_systems_list():
+                _.append(s._status())
+            _.append(self._status())
+            status = await asyncio.gather(*_)
+            if all(status):
+                continue_new_experiment.append(True)
+            else:
+                warn("Some systems are not ready")
+                # TODO: get user confirmation to proceed if there are system issues
+                continue_new_experiment.append(True)
 
-        if all_systems_go:
+        if all(continue_new_experiment):
             # Check if ROIs needed -> wait for ROIs if none in config
             for fc in flowcells:
                 # if not check_for_rois(fprotocol[fc.name]) and len(fc.ROIs) == 0:
                 if not check_for_rois(fprotocol[fc.name]):
                     await self._roi_manager.wait_for_rois(fc.name)
 
-        # Add steps from protocol to queues
-        for fc in flowcells:
-            description = f"Queue protocol on {fc.name}"
-            self.add_task(
-                description, self._queue_protocol, fc.name, fprotocol[fc.name]
-            )
-            # self._queue_protocol(fc.name, fprotocol[fc.name])
+            # Add steps from protocol to queues
+            for fc in flowcells:
+                description = f"Queue protocol on {fc.name}"
+                self.add_task(
+                    description, self._queue_protocol, fc.name, fprotocol[fc.name]
+                )
+                # self._queue_protocol(fc.name, fprotocol[fc.name])
 
     async def _queue_protocol(self, flowcell: Union[str, int], fprotocols: dict):
         for pname, protocol in fprotocols.items():
@@ -1141,5 +1159,5 @@ class BaseSequencer(BaseSystem):
 
     @staticmethod
     @abstractmethod
-    def custom_roi_stage(flowcell: Union[str, int], **kwargs) -> dict:
+    def custom_roi_stage(roi: Union[CUSTOM_ROI, None] = None, **kwargs) -> dict:
         return {}

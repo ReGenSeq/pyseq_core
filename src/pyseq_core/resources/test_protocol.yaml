@@ -14,7 +14,7 @@ steps:
     - IMAGE: 1
 ---
 name: test_protocol_2
-cycles: 10
+cycles: 2
 steps:
     - VALV: imager
     - PUMP: 750
@@ -25,4 +25,4 @@ steps:
     - WAIT: microscope
     - VALV: imaging
     - PUMP: 1000
-    - IMAGE: 2
+    - IMAGE: {"nz": 2, "optics": {"power": {"green" : 500}}}

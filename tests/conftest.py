@@ -6,7 +6,7 @@ import importlib
 # Base Test Sequencer
 @pytest_asyncio.fixture
 async def BaseTestSequencer():
-    """Uninitialized Base Test Sequencer with only default settings."""
+    """Initialized Base Test Sequencer with only default settings."""
     # Sequencer Setup
     from sequencers import test_sequencer
 
@@ -23,10 +23,12 @@ async def BaseTestSequencer():
     yield seq
 
     # Shutdown systems and cancel task workers
-    # seq.shutdown()
+    # Clear queues and stop workers forcefully
+    seq.shutdown()
+    await seq._queue.join()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 def test_roi_file_path():
     """Path to test_roi.toml in resources.
 

@@ -1,6 +1,8 @@
 name: Test
 Test:
-  flowcells: ['A', 'B']
+  flowcells:
+  - A
+  - B
   A: &flowcell
     inlet_port: 
       2: 2

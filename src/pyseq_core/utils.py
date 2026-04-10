@@ -44,25 +44,12 @@ def get_sequencer_package_path(caller_frame: List[inspect.FrameInfo]) -> Path:
                         pass
 
 
-RESOURCE_PATH = None
-if os.environ.get("PYTEST_VERSION") is not None:
-    RESOURCE_PATH = get_sequencer_package_path(inspect.stack())
+# RESOURCE_PATH = None
+# if os.environ.get("PYTEST_VERSION") is not None:
+RESOURCE_PATH = get_sequencer_package_path(inspect.stack())
 if RESOURCE_PATH is None:
     # Fallback to pyseq_core resources in remote tests
     RESOURCE_PATH = resources.files("pyseq_core")
-
-    # for frame in caller_frame:
-    #     match = re.findall(pattern, frame.filename)
-    #     if match:
-    #        for m in match:
-    #            package = m.lower()
-    #            if package != "pyseq_core":
-    #                try:
-    #                     RESOURCE_PATH = resources.files(package)
-    #                     break
-    #                except ModuleNotFoundError:
-    #                    # pyseq is in filepath, ignore
-    #                    pass
 
 
 MACHINE_SETTINGS_PATH = Path.home() / ".config/pyseq/machine_settings.yaml"
@@ -125,13 +112,6 @@ if os.environ.get("PYTEST_VERSION") is not None and ("test" in machine_name):
         machine_name = all_settings["name"]
         HW_CONFIG = all_settings[machine_name]
 
-# Read default config and machine settings
-DEFAULT_CONFIG = tomlkit.parse(open(DEFAULT_CONFIG_PATH).read())
-"""Dictionary containing the default experiment and software configuration.
-
-This is loaded from the `DEFAULT_CONFIG_PATH` TOML file.
-"""
-
 
 def deep_merge(src_dict: dict, dst_dict: dict) -> dict:
     """Recursively merges a source dictionary into a destination dictionary.
@@ -156,6 +136,23 @@ def deep_merge(src_dict: dict, dst_dict: dict) -> dict:
             dst_dict[k] = v
 
     return dst_dict
+
+
+# Read default config and machine settings
+# Load package defaults first, then merge user config on top
+with open(DEFAULT_CONFIG_RESOURCE, "r") as f:
+    DEFAULT_CONFIG = tomlkit.parse(f.read())
+
+# Merge user config if it exists and is different from resource
+if DEFAULT_CONFIG_PATH != DEFAULT_CONFIG_RESOURCE and DEFAULT_CONFIG_PATH.exists():
+    with open(DEFAULT_CONFIG_PATH, "r") as f:
+        user_config = tomlkit.parse(f.read())
+        DEFAULT_CONFIG = deep_merge(user_config, DEFAULT_CONFIG)
+"""Dictionary containing the default experiment and software configuration.
+
+This is loaded from the `DEFAULT_CONFIG_PATH` TOML file, merged with package
+defaults from `DEFAULT_CONFIG_RESOURCE`. User config overrides package defaults.
+"""
 
 
 def setup_experiment_path(exp_config: dict, exp_name: str) -> dict:

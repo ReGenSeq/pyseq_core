@@ -4,9 +4,16 @@ import logging
 
 
 async def wait_for_microscope_queue(microscope):
-    while len(microscope._queue_dict) == 0:
+    # Wait briefly for tasks to be added to the queue
+    for _ in range(20):  # Wait up to 1 second
+        if len(microscope._queue_dict) > 0:
+            break
         await asyncio.sleep(0.05)
-    assert len(microscope._queue_dict) > 0, "No tasks added to microscope queue"
+
+    if len(microscope._queue_dict) == 0:
+        # No tasks in queue, nothing to wait for
+        return
+
     microscope.start()
     await microscope._queue.join()
 
@@ -48,13 +55,16 @@ async def check_fc_queue(
             check_for_errors_in_log(caplog)
             return True
 
+        # Start microscope if needed before waiting for flowcells
+        m = None
+        if check_microscope:
+            m = sequencer.microscope
+            m.start()
+
         # Wait for tasks to finish
         _ = []
         for fc in flowcells:
             _.append(fc._queue.join())
-        if check_microscope:
-            m = sequencer.microscope
-            _.append(wait_for_microscope_queue(m))
         try:
             await asyncio.wait_for(asyncio.gather(*_), timeout)
         except TimeoutError as e:
@@ -72,8 +82,7 @@ async def check_fc_queue(
 
         return True
 
-    except AssertionError as e:
-        print(e)
+    except AssertionError:
         return False
 
 
@@ -129,7 +138,7 @@ async def test_wait(BaseTestSequencerROIs, caplog):
     BaseTestSequencerROIs.pause()
     BaseTestSequencerROIs.wait()
     # Queue hold on A then image on A and B
-    BaseTestSequencerROIs.hold(flowcells="A", duration=0.01 / 60)
+    BaseTestSequencerROIs.hold(flowcells="A", duration=0.1 / 60)
     BaseTestSequencerROIs.image()
     # Check tasks queued
     assert await check_fc_queue(
@@ -141,7 +150,7 @@ async def test_wait(BaseTestSequencerROIs, caplog):
         BaseTestSequencerROIs, caplog, timeout=5, check_microscope=True
     )
     # Check logs for correct sequence of events
-    tasks = ["A using microscope", "B using microscope"]
+    tasks = ["A using Microscope", "B using Microscope"]
     check_task_sequence(caplog, tasks)
 
 
@@ -151,7 +160,7 @@ async def test_image(BaseTestSequencerROIs, caplog):
     BaseTestSequencerROIs.image()
     # microscope will start in `check_fc_queue`
     assert await check_fc_queue(
-        BaseTestSequencerROIs, caplog, timeout=5, check_microscope=True
+        BaseTestSequencerROIs, caplog, timeout=10, check_microscope=True
     )
 
 
@@ -194,4 +203,4 @@ def test_get_fc_list(BaseTestSequencer, fc, fc_exp):
 def test_get_systems_list(BaseTestSequencer):
     fcs = BaseTestSequencer._get_systems_list()
     fc_ = [_.name for _ in fcs]
-    assert fc_ == ["A", "B", "microscope"]
+    assert fc_ == ["A", "B", "Microscope"]

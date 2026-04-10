@@ -1,10 +1,17 @@
 from __future__ import annotations
 from attrs import define, field
-from pyseq_core.base_protocol import ROIFactory
-from pyseq_core.utils import DEFAULT_CONFIG  # #HW_CONFIG, deep_merge
+from pydantic import BaseModel, Field, ValidationError
+from pyseq_core.base_protocol import (
+    BaseROI,
+    ConfigModelFactory,
+    BaseStagePosition,
+    BaseImageParams,
+    BaseFocusParams,
+    BaseExposeParams,
+)
 
 from warnings import warn
-from typing import Union, Dict, Callable, Any, Type, TYPE_CHECKING
+from typing import Union, Dict, Callable, Type, TYPE_CHECKING
 import logging
 import tomlkit
 from asyncio import Condition
@@ -15,20 +22,50 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger("PySeq")
 
 
-DefaultROI = ROIFactory.factory(DEFAULT_CONFIG)
-ROIType = Type[DefaultROI]
+def get_ROI_models(exp_config: dict = {}) -> Type[BaseROI]:
+    if len(exp_config) > 0:
+        ExperimentModelFactory = ConfigModelFactory(exp_config)
+        StagePosition = ExperimentModelFactory.get_model("stage", BaseStagePosition)
+        ImageParams = ExperimentModelFactory.get_model("image", BaseImageParams)
+        FocusParams = ExperimentModelFactory.get_model("focus", BaseFocusParams)
+        ExposeParams = ExperimentModelFactory.get_model("expose", BaseExposeParams)
+
+        class ROI(BaseModel):
+            name: str
+            stage: StagePosition
+            image: ImageParams = Field(default_factory=ImageParams)
+            focus: FocusParams = Field(default_factory=FocusParams)
+            expose: ExposeParams = Field(default_factory=ExposeParams)
+
+        return ROI
+    else:
+        return BaseROI
 
 
-# class DefaultROI(_DefaultROI):
-#     pass
+def get_ROI(ROImodel: BaseROI, roi_name, roi_stage, **kwargs):
+    LOGGER.debug(f"Parsing ROI {roi_name} on Flowcell {roi_stage['flowcell']}")
+    model_dict = {"name": roi_name, "stage": roi_stage}
+    LOGGER.debug(f"ROI : stage : {roi_stage}")
+    for param in ["image", "focus", "expose"]:
+        if param in kwargs:
+            val = kwargs[param]
+            model_dict[param] = val
+            LOGGER.debug(f"ROI : {param} : {val}")
+
+    try:
+        return ROImodel(**model_dict)
+    except ValidationError as err:
+        LOGGER.error(f"Error parsing ROI {roi_name}")
+        LOGGER.error(err)
+        return model_dict
 
 
 def read_roi_config(
     flowcells: str,
     config_path: str,
-    exp_config: dict = {},
-    custom_roi_stage: Callable[[str, Union[int, str], Any], ROIType] = None,
-) -> list[ROIType]:
+    custom_roi_stage: Callable[..., dict],
+    exp_config: Union[dict, None] = None,
+) -> list[BaseROI]:
     """Read ROI toml file and return list of ROIs.
 
     TOML file can be in any of the following forms
@@ -108,28 +145,53 @@ def read_roi_config(
 
     roi_config = tomlkit.parse(open(config_path).read())
 
-    if exp_config is not None:
-        ROI = ROIFactory.factory(exp_config)
-    else:
-        ROI = DefaultROI
+    if exp_config is None:
+        exp_config = {}
+    ROImodel = get_ROI_models(exp_config)
+
+    overlap = exp_config.get("image", {}).get("overlap", 0)
 
     rois = []
     for roi_name, _roi in roi_config.items():
+        _roi = _roi.unwrap()
         fc = _roi.get("flowcell", None)
         if roi_name in flowcells and fc is None:
             # {flowcell: {roi_name: **custom_roi_kwargs}
             fc = roi_name
             for roi_name_, roi_ in _roi.items():
-                stage = custom_roi_stage(fc, **roi_)
-                rois.append(ROI.merge_defaults(roi_name_, stage, roi_))
-
+                roi_.setdefault("overlap", overlap)
+                stage = custom_roi_stage(flowcell=fc, **roi_)
+                ROI = get_ROI(ROImodel, roi_name_, stage, **roi_)
+                if ROI is not None:
+                    rois.append(ROI)
+                # model_dict = {"name": roi_name_,
+                #               "stage": stage,
+                #               "image": roi_.get("image", {}),
+                #               "focus": roi_.get("focus", {}),
+                #               "expose": roi_.get("expose", {})}
+                # rois.append(ROImodel(**model_dict))
         elif fc is not None and fc in flowcells:
             # {roi_name: {flowcell: fc, **custom_roi_kwargs}
+            _roi.setdefault("overlap", overlap)
             stage = custom_roi_stage(**_roi)
-            rois.append(ROI.merge_defaults(roi_name, stage, _roi))
+            ROI = get_ROI(ROImodel, roi_name, stage, **_roi)
+            if ROI is not None:
+                rois.append(ROI)
+            # LOGGER.debug(stage)
+            # model_dict = {"name": roi_name,
+            #               "stage": stage}
+            #             #   "image": _roi.get("image", {}),
+            #             #   "focus": _roi.get("focus", {}),
+            #             #   "expose": _roi.get("expose", {}),
+            #               }
+            # LOGGER.debug(model_dict)
+            # rois.append(ROImodel(**model_dict))
         else:
             # {roi_name: name, stage: **stage_kwargs, image:**image_kwargs, ...}
-            rois.append(ROI(name=roi_name, **_roi))
+            # LOGGER.debug(_roi)
+            ROI = get_ROI(ROImodel, roi_name, _roi["stage"], **_roi)
+            if ROI is not None:
+                rois.append(ROI)
     return rois
 
 
@@ -162,7 +224,7 @@ class ROIManager:
         """
         return self.flowcells[flowcell].ROIs
 
-    def add(self, roi: ROIType = None, exp_config: dict = None, **kwargs) -> bool:
+    def add(self, roi: Union[BaseROI, dict], exp_config: dict = {}) -> bool:
         """Adds a Region of Interest (ROI) to a flowcell.
 
         If an `roi` object is provided, it is added directly. Otherwise, a new
@@ -184,13 +246,11 @@ class ROIManager:
                 target flowcell.
         """
 
-        if exp_config is not None:
-            ROI = ROIFactory.factory(exp_config)
-        else:
-            ROI = DefaultROI
+        ROImodel = get_ROI_models(exp_config)
 
-        if roi is None:
-            roi = ROI(**kwargs)
+        if isinstance(roi, dict):
+            roi = ROImodel(**roi)
+
         fc = roi.stage.flowcell
         if roi.name not in self.rois(fc):
             self.rois(fc)[roi.name] = roi
@@ -203,7 +263,7 @@ class ROIManager:
             warn(msg, UserWarning)
             return False
 
-    def update(self, roi: ROIType):
+    def update(self, roi: BaseROI):
         """Updates an existing Region of Interest (ROI) on a flowcell.
 
         If an ROI with the same name exists on the target flowcell, it is
