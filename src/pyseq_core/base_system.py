@@ -39,7 +39,7 @@ from pyseq_core.base_protocol import (
 )
 from pyseq_core.reservation_system import ReservationSystem, reserve_microscope
 from pyseq_core.roi_manager import ROIManager, read_roi_config
-from typing import Dict, Union, List, Coroutine, Literal
+from typing import Dict, Union, List, Coroutine, Literal, Optional
 from attrs import define, field
 from pydantic import ValidationError
 from pathlib import Path
@@ -350,12 +350,22 @@ class BaseMicroscope(BaseSystem):
         pass
 
     @abstractmethod
+    async def _focus_stack(self, **kwargs):
+        """Perform a z-stack acquisition."""
+        pass
+
+    @abstractmethod
     async def _expose_scan(self, roi: BaseROI, duration: Union[float, int] = 0):
         """Scan over the specified region of interest (ROI) with laser."""
         pass
 
     @abstractmethod
-    async def _move(self, roi: SimpleStagePosition):
+    async def _move(
+        self,
+        x: Union[int, float, None],
+        y: Union[int, float, None],
+        z: Union[int, float, None],
+    ):
         """Move the stage ROI x,y,z coordinates."""
         pass
 
@@ -464,16 +474,16 @@ def check_name(func, fmt: str = "%Y%m%d%H%M"):
     If no name found use current datetime formatted as fmt
     """
 
-    def wrap(self, roi: BaseROI = None, name: str = "", **kwargs):
+    def wrap(self, roi: Optional[BaseROI] = None, name: str = "", **kwargs):
         if len(name) > 0:
             pass
         elif roi is not None:
             try:
                 name = roi.name
             except AttributeError:
-                name = timestamp()
+                name = timestamp(fmt)
         else:
-            name = timestamp()
+            name = timestamp(fmt)
         return func(self, roi=roi, name=name, **kwargs)
 
     return wrap
@@ -578,7 +588,7 @@ class BaseFlowCell(BaseSystem):
 
     def temperature(
         self, temperature: Union[int, float], timeout: Union[float, None]
-    ) -> None:
+    ) -> int:
         """Set the temperature of the flow cell."""
         description = f"Set temperature to {temperature} C"
         return self.add_task(
@@ -592,24 +602,24 @@ class BaseFlowCell(BaseSystem):
     def image(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Image specified ROIs or all ROIs on flowcell (default)."""
         description = f"Image {len(roi)} ROIs"
-        self.add_task(description, self._roi_to_microscope, "image", roi)
+        return self.add_task(description, self._roi_to_microscope, "image", roi)
 
     @listerize_roi
     def focus(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Focus on specified ROIs or all ROIs on flowcell (default)."""
         description = f"Focus on {len(roi)} ROIs"
-        self.add_task(description, self._roi_to_microscope, "focus", roi)
+        return self.add_task(description, self._roi_to_microscope, "focus", roi)
 
     @listerize_roi
     def expose(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Expose specified ROIs or all ROIs on flowcell (default)."""
         description = f"Expose {len(roi)} ROIs"
-        self.add_task(description, self._roi_to_microscope, "expose", roi)
+        return self.add_task(description, self._roi_to_microscope, "expose", roi)
 
     def update_protocol_name(self, name: str):
         """Queue a task to update the protocol name."""
         description = f"Start protocol {name}"
-        self.add_task(description, self._update_protocol_name, name)
+        return self.add_task(description, self._update_protocol_name, name)
 
     def _update_protocol_name(self, name: str):
         self._protocol_name = name

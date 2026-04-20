@@ -27,7 +27,6 @@ import ctypes
 import ctypes.util
 import numpy as np
 import imageio
-import warnings
 from os.path import join
 import logging
 
@@ -172,9 +171,7 @@ class HCamData:
     # @param size The size of the data object in bytes.
     #
     def __init__(self, size):
-        self.np_array = np.ascontiguousarray(
-            np.empty(int(size / 2), dtype=np.uint16)
-        )
+        self.np_array = np.ascontiguousarray(np.empty(int(size / 2), dtype=np.uint16))
         self.size = size
 
     ## __getitem__
@@ -1348,85 +1345,95 @@ class HamamatsuCamera:
 #
 
 if __name__ == "__main__":
-    print("found:", n_cameras, "cameras")
-    if n_cameras > 0:
-        hcam = HamamatsuCamera(0)
-        # print(hcam.setPropertyValue("defect_correct_mode", 1))
-        print("camera 0 model:", hcam.getModelInfo(0))
+    try:
+        dcam = ctypes.windll.dcamapi
+        temp = ctypes.c_int32(0)
+        if dcam.dcam_init(None, ctypes.byref(temp), None) != DCAMERR_NOERROR:
+            raise DCAMException("DCAM initialization failed.")
+        n_cameras = temp.value
 
-        # List support properties.
-        if 1:
-            print("Supported properties:")
-            props = hcam.getProperties()
-            for i, id_name in enumerate(sorted(props.keys())):
-                [p_value, p_type] = hcam.getPropertyValue(id_name)
-                p_rw = hcam.getPropertyRW(id_name)
-                read_write = ""
-                if p_rw[0]:
-                    read_write += "read"
-                if p_rw[1]:
-                    read_write += ", write"
-                print(
-                    "  ",
-                    i,
-                    ")",
-                    id_name,
-                    " = ",
-                    p_value,
-                    " type is:",
-                    p_type,
-                    ",",
-                    read_write,
-                )
-                text_values = hcam.getPropertyText(id_name)
-                if len(text_values) > 0:
-                    print("          option / value")
-                    for key in sorted(text_values, key=text_values.get):
-                        print("         ", key, "/", text_values[key])
+        print("found:", n_cameras, "cameras")
+        if n_cameras > 0:
+            hcam = HamamatsuCamera(0)
+            # print(hcam.setPropertyValue("defect_correct_mode", 1))
+            print("camera 0 model:", hcam.getModelInfo(0))
 
-        # Test setting & getting some parameters.
-        if 0:
-            print(hcam.setPropertyValue("exposure_time", 0.001))
+            # List support properties.
+            if 1:
+                print("Supported properties:")
+                props = hcam.getProperties()
+                for i, id_name in enumerate(sorted(props.keys())):
+                    [p_value, p_type] = hcam.getPropertyValue(id_name)
+                    p_rw = hcam.getPropertyRW(id_name)
+                    read_write = ""
+                    if p_rw[0]:
+                        read_write += "read"
+                    if p_rw[1]:
+                        read_write += ", write"
+                    print(
+                        "  ",
+                        i,
+                        ")",
+                        id_name,
+                        " = ",
+                        p_value,
+                        " type is:",
+                        p_type,
+                        ",",
+                        read_write,
+                    )
+                    text_values = hcam.getPropertyText(id_name)
+                    if len(text_values) > 0:
+                        print("          option / value")
+                        for key in sorted(text_values, key=text_values.get):
+                            print("         ", key, "/", text_values[key])
 
-            # print hcam.setPropertyValue("subarray_hsize", 2048)
-            # print hcam.setPropertyValue("subarray_vsize", 2048)
-            print(hcam.setPropertyValue("subarray_hpos", 512))
-            print(hcam.setPropertyValue("subarray_vpos", 512))
-            print(hcam.setPropertyValue("subarray_hsize", 1024))
-            print(hcam.setPropertyValue("subarray_vsize", 1024))
+            # Test setting & getting some parameters.
+            if 0:
+                print(hcam.setPropertyValue("exposure_time", 0.001))
 
-            print(hcam.setPropertyValue("binning", "1x1"))
-            print(hcam.setPropertyValue("readout_speed", 2))
+                # print hcam.setPropertyValue("subarray_hsize", 2048)
+                # print hcam.setPropertyValue("subarray_vsize", 2048)
+                print(hcam.setPropertyValue("subarray_hpos", 512))
+                print(hcam.setPropertyValue("subarray_vpos", 512))
+                print(hcam.setPropertyValue("subarray_hsize", 1024))
+                print(hcam.setPropertyValue("subarray_vsize", 1024))
 
-            hcam.setSubArrayMode()
-            # hcam.startAcquisition()
-            # hcam.stopAcquisition()
+                print(hcam.setPropertyValue("binning", "1x1"))
+                print(hcam.setPropertyValue("readout_speed", 2))
 
-            params = ["internal_frame_rate", "timing_readout_time", "exposure_time"]
+                hcam.setSubArrayMode()
+                # hcam.startAcquisition()
+                # hcam.stopAcquisition()
 
-            #                      "image_height",
-            #                      "image_width",
-            #                      "image_framebytes",
-            #                      "buffer_framebytes",
-            #                      "buffer_rowbytes",
-            #                      "buffer_top_offset_bytes",
-            #                      "subarray_hsize",
-            #                      "subarray_vsize",
-            #                      "binning"]
-            for param in params:
-                print(param, hcam.getPropertyValue(param)[0])
+                params = ["internal_frame_rate", "timing_readout_time", "exposure_time"]
 
-        # Test acquisition.
-        if 0:
-            hcam.startAcquisition()
-            cnt = 1
-            for i in range(300):
-                [frames, dims] = hcam.getFrames()
-                for aframe in frames:
-                    print(cnt, aframe[0:5])
-                    cnt += 1
+                #                      "image_height",
+                #                      "image_width",
+                #                      "image_framebytes",
+                #                      "buffer_framebytes",
+                #                      "buffer_rowbytes",
+                #                      "buffer_top_offset_bytes",
+                #                      "subarray_hsize",
+                #                      "subarray_vsize",
+                #                      "binning"]
+                for param in params:
+                    print(param, hcam.getPropertyValue(param)[0])
 
-            hcam.stopAcquisition()
+            # Test acquisition.
+            if 0:
+                hcam.startAcquisition()
+                cnt = 1
+                for i in range(300):
+                    [frames, dims] = hcam.getFrames()
+                    for aframe in frames:
+                        print(cnt, aframe[0:5])
+                        cnt += 1
+
+                hcam.stopAcquisition()
+
+    except AttributeError:
+        print("DCAM is not installed")
 
 
 #

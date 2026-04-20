@@ -399,6 +399,10 @@ class BaseFocusParams(BaseModel):
     optics: OpticsParamsType = OpticsParams()
     routine: AF_ROUTINES
     output: DirectoryPath = getcwd()
+    tolerance: float  # for RANSAC fitting, distance in microns, ~ size diameter of cell
+    coverage: float  # Fraction of tile that should be covered during focusing
+    # object_diameter: Union[int, float] # size of objects in um, ie cell diameter
+    # edge_threshold: float # percent of fov possibly taken up by an edge
     z_focus: Union[int, float, None] = None
 
 
