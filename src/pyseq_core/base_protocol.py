@@ -8,7 +8,6 @@ from pydantic import (
     NonNegativeInt,
     field_validator,
     model_validator,
-    DirectoryPath,
     Field,
     ConfigDict,
 )
@@ -24,6 +23,7 @@ from typing_extensions import Self
 from copy import deepcopy
 from os import getcwd
 from enum import Enum
+from pathlib import Path
 
 
 # Set up logging
@@ -76,7 +76,7 @@ class ConfigModelFactory:
     ) -> Type[BaseModel]:
         config_dict = ConfigModelFactory._unfreeze_dict(frozen_config)
 
-        # generate dynamic neste model
+        # generate dynamic nested model
         return ConfigModelFactory._nested_model(
             section_key.capitalize(), config_dict, base_model
         )
@@ -378,7 +378,7 @@ OpticsParamsType = Type[OpticsParams]
 
 class BaseImageParams(BaseModel):
     optics: OpticsParams
-    image_dir: DirectoryPath = getcwd()
+    image_dir: Path = getcwd()
     nz: PositiveInt
     overlap: PositiveInt
 
@@ -398,7 +398,7 @@ class BaseFocusParams(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     optics: OpticsParamsType = OpticsParams()
     routine: AF_ROUTINES
-    output: DirectoryPath = getcwd()
+    output: Path = getcwd()
     tolerance: float  # for RANSAC fitting, distance in microns, ~ size diameter of cell
     coverage: float  # Fraction of tile that should be covered during focusing
     # object_diameter: Union[int, float] # size of objects in um, ie cell diameter

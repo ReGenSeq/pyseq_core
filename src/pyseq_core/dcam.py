@@ -972,7 +972,7 @@ class HamamatsuCamera:
         error = dcam.dcam_allocframe(
             self.camera_handle, ctypes.c_int32(self.number_image_buffers)
         )
-        self.message(f"allocFrame, {error}")
+        self.message(f"allocFrame {n_frames}, {error}")
 
         return error
 

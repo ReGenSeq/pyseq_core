@@ -289,7 +289,7 @@ class BaseMicroscope(BaseSystem):
 
     @cached_property
     def resolution(self) -> float:
-        return self.config["resolution"]
+        return self._config["resolution"]
 
     @property
     def YStage(self) -> BaseStage:
