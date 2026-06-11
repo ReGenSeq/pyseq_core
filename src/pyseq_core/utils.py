@@ -270,7 +270,10 @@ def map_coms(
     _coms = {}
     for instrument, values in hw_config.items():
         if "com" in values:
-            _coms[instrument] = values["com"]["address"]
+            com_val = values["com"]
+            _coms[instrument] = (
+                com_val if isinstance(com_val, str) else com_val["address"]
+            )
 
     coms = {}
     for instrument, com_id in _coms.items():
