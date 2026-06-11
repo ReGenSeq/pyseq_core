@@ -46,7 +46,9 @@ class BaseCOM(ABC):
         return self._connected
 
     @abstractmethod
-    async def command(self, command: str, read: bool = True) -> Union[str, dict]:
+    async def command(
+        self, command: str, read: bool = True, timeout: float = 1.0
+    ) -> Union[str, dict]:
         """
         Asynchronously sends a command to the communication interface.
 
