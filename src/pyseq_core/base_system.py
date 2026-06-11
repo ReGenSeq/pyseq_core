@@ -410,12 +410,9 @@ class BaseMicroscope(BaseSystem):
     async def _image(self, roi: BaseROI) -> None:
         """Async image ROIs."""
 
-        await self._move(roi.stage)
-        if roi.focus.z_focus is None:
-            await self._set_parameters(roi.focus.optics)
-            roi = await self._find_focus(roi)
-        else:
-            await self.ZStage.move(roi.focus.z_focus)
+        
+        roi = await self._find_focus(roi)
+        await self._move(**roi.stage.model_dump())
         await self._set_parameters(roi.image.optics)
         await self._scan(roi)
 
