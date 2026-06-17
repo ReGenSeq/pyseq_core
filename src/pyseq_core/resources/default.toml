@@ -32,8 +32,10 @@ filter.green = "home"
 
 [focus]
 routine = "partial once" 
-z_init = 0
-z_last = 65000
+tolerance = 5.0                                                                 # microns, thickness of section / ROI
+coverage = 0.02                                                                 # Percent of tile that should be covered during focusing
+x_fraction = 0.5                                                                # ONLY for partial routines, fraction of roi in x direction for imaging
+plot_data = true                                                                # Save focus metric vs z plots for each evaluated FOV
 
 [focus.optics]
 power.red = 0

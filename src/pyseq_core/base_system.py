@@ -39,7 +39,7 @@ from pyseq_core.base_protocol import (
 )
 from pyseq_core.reservation_system import ReservationSystem, reserve_microscope
 from pyseq_core.roi_manager import ROIManager, read_roi_config
-from typing import Dict, Union, List, Coroutine, Literal
+from typing import Dict, Union, List, Coroutine, Literal, Optional
 from attrs import define, field
 from pydantic import ValidationError
 from pathlib import Path
@@ -289,7 +289,7 @@ class BaseMicroscope(BaseSystem):
 
     @cached_property
     def resolution(self) -> float:
-        return self.config["resolution"]
+        return self._config["resolution"]
 
     @property
     def YStage(self) -> BaseStage:
@@ -350,12 +350,22 @@ class BaseMicroscope(BaseSystem):
         pass
 
     @abstractmethod
+    async def _focus_stack(self, **kwargs):
+        """Perform a z-stack acquisition."""
+        pass
+
+    @abstractmethod
     async def _expose_scan(self, roi: BaseROI, duration: Union[float, int] = 0):
         """Scan over the specified region of interest (ROI) with laser."""
         pass
 
     @abstractmethod
-    async def _move(self, roi: SimpleStagePosition):
+    async def _move(
+        self,
+        x: Union[int, float, None],
+        y: Union[int, float, None],
+        z: Union[int, float, None],
+    ):
         """Move the stage ROI x,y,z coordinates."""
         pass
 
@@ -365,12 +375,12 @@ class BaseMicroscope(BaseSystem):
         pass
 
     @abstractmethod
-    async def _find_focus(self, roi: BaseROI):
+    async def _find_focus(self, roi: BaseROI) -> BaseROI:
         """Async set the parameters for the ROI."""
         # Reset X & Y stage to initial position after finding focus
         # Save Z stage focus position to `ROI.focus.z_focus`
         # Move Z stage to `ROI.focus.z_focus`
-        pass
+        return roi
 
     @reserve_microscope
     async def _from_flowcell(
@@ -393,19 +403,15 @@ class BaseMicroscope(BaseSystem):
     async def _expose(self, roi: BaseROI):
         """Async expose the sample for a specified duration without imaging."""
 
-        await self._move(roi.stage)
+        await self._move(**roi.stage.model_dump())
         await self._set_parameters(roi.expose.optics)
         await self._expose_scan(roi)
 
     async def _image(self, roi: BaseROI) -> None:
         """Async image ROIs."""
 
-        await self._move(roi.stage)
-        if roi.focus.z_focus is None:
-            await self._set_parameters(roi.focus.optics)
-            roi = await self._find_focus(roi)
-        else:
-            await self.ZStage.move(roi.focus.z_focus)
+        roi = await self._find_focus(roi)
+        await self._move(**roi.stage.model_dump())
         await self._set_parameters(roi.image.optics)
         await self._scan(roi)
 
@@ -464,16 +470,16 @@ def check_name(func, fmt: str = "%Y%m%d%H%M"):
     If no name found use current datetime formatted as fmt
     """
 
-    def wrap(self, roi: BaseROI = None, name: str = "", **kwargs):
+    def wrap(self, roi: Optional[BaseROI] = None, name: str = "", **kwargs):
         if len(name) > 0:
             pass
         elif roi is not None:
             try:
                 name = roi.name
             except AttributeError:
-                name = timestamp()
+                name = timestamp(fmt)
         else:
-            name = timestamp()
+            name = timestamp(fmt)
         return func(self, roi=roi, name=name, **kwargs)
 
     return wrap
@@ -578,7 +584,7 @@ class BaseFlowCell(BaseSystem):
 
     def temperature(
         self, temperature: Union[int, float], timeout: Union[float, None]
-    ) -> None:
+    ) -> int:
         """Set the temperature of the flow cell."""
         description = f"Set temperature to {temperature} C"
         return self.add_task(
@@ -592,24 +598,24 @@ class BaseFlowCell(BaseSystem):
     def image(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Image specified ROIs or all ROIs on flowcell (default)."""
         description = f"Image {len(roi)} ROIs"
-        self.add_task(description, self._roi_to_microscope, "image", roi)
+        return self.add_task(description, self._roi_to_microscope, "image", roi)
 
     @listerize_roi
     def focus(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Focus on specified ROIs or all ROIs on flowcell (default)."""
         description = f"Focus on {len(roi)} ROIs"
-        self.add_task(description, self._roi_to_microscope, "focus", roi)
+        return self.add_task(description, self._roi_to_microscope, "focus", roi)
 
     @listerize_roi
     def expose(self, roi: Union[BaseROI, List[BaseROI]] = []) -> int:
         """Expose specified ROIs or all ROIs on flowcell (default)."""
         description = f"Expose {len(roi)} ROIs"
-        self.add_task(description, self._roi_to_microscope, "expose", roi)
+        return self.add_task(description, self._roi_to_microscope, "expose", roi)
 
     def update_protocol_name(self, name: str):
         """Queue a task to update the protocol name."""
         description = f"Start protocol {name}"
-        self.add_task(description, self._update_protocol_name, name)
+        return self.add_task(description, self._update_protocol_name, name)
 
     def _update_protocol_name(self, name: str):
         self._protocol_name = name

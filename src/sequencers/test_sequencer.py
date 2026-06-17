@@ -344,6 +344,20 @@ class TestMicroscope(BaseMicroscope):
             await self.ZStage.move(z)
             await self._capture(roi, f"{im_name}_z{z}")
 
+    async def _focus_stack(self, roi: BaseROI, im_name: str):
+        """Perform a z-stack acquisition."""
+
+        z_init = self.ZStage.min_position
+        z_last = self.ZStage.max_position
+        z_step = self.ZStage.step
+        z_step = (((z_last - z_init) / 100) // z_step) * z_step
+        await self.ZStage.move(z_init)
+        LOGGER.debug(f"Focus stack {roi.name} {z_init} to {z_last} in {z_step} steps")
+        for i, z in enumerate(range(z_init, z_last, z_step)):
+            LOGGER.debug(f"Z stack {i}/{roi.stage.nz}")
+            await self.ZStage.move(z)
+            await self._capture(roi, f"{im_name}_z{z}")
+
     async def _scan(self, roi: BaseROI, im_name: str = ""):
         """Perform a scan over the specified region of interest (ROI)."""
 
@@ -380,7 +394,7 @@ class TestMicroscope(BaseMicroscope):
                 else:
                     await self.YStage.move(roi.y_init)
 
-    async def _find_focus(self, roi):
+    async def _find_focus(self, roi: BaseROI) -> BaseROI:
         LOGGER.debug(f"Fake finding focus using routine {roi.focus.routine}.")
         LOGGER.debug(f"Saving focus data to {roi.focus.output}.")
         roi.focus.z_focus = 0
@@ -388,14 +402,28 @@ class TestMicroscope(BaseMicroscope):
 
         return roi
 
-    async def _move(self, roi: BaseROI):
+    async def _move(
+        self,
+        x: int = -1,
+        y: Union[int, None] = None,
+        z: Union[int, None] = None,
+        **kwargs,
+    ):
         """Move the stage ROI x,y,z coordinates."""
-        LOGGER.debug(f"Moving to x={roi.x}, y={roi.y}, z={roi.z}")
-        await asyncio.gather(
-            self.XStage.move(roi.x),
-            self.YStage.move(roi.y),
-            self.ZStage.move(roi.z),
-        )
+        msg = "Moving to"
+        _ = []
+        if x > 0:
+            _.append(self.XStage.move(x))
+            msg += f" x={x}"
+        if y is not None:
+            _.append(self.YStage.move(y))
+            msg += f" y={y}"
+        if z is not None:
+            _.append(self.ZStage.move(z))
+            msg += f" z={z}"
+
+        LOGGER.debug(msg)
+        await asyncio.gather(*_)
 
     async def _set_parameters(self, params: OpticsParams):
         """Set the parameters to expose/image the ROI."""
