@@ -285,7 +285,7 @@ class BaseStagePosition(BaseModel):
     @property
     def z_last(self) -> Union[int, float]:
         z_init = self.z_init if self.z_init is not None else 0
-        return z_init + self.z_step * self.nz
+        return z_init + self.z_step * (self.nz-1)
 
     @computed_field
     @property
