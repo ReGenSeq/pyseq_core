@@ -375,12 +375,12 @@ class BaseMicroscope(BaseSystem):
         pass
 
     @abstractmethod
-    async def _find_focus(self, roi: BaseROI):
+    async def _find_focus(self, roi: BaseROI) -> BaseROI:
         """Async set the parameters for the ROI."""
         # Reset X & Y stage to initial position after finding focus
         # Save Z stage focus position to `ROI.focus.z_focus`
         # Move Z stage to `ROI.focus.z_focus`
-        pass
+        return roi
 
     @reserve_microscope
     async def _from_flowcell(
@@ -403,14 +403,13 @@ class BaseMicroscope(BaseSystem):
     async def _expose(self, roi: BaseROI):
         """Async expose the sample for a specified duration without imaging."""
 
-        await self._move(roi.stage)
+        await self._move(**roi.stage.model_dump())
         await self._set_parameters(roi.expose.optics)
         await self._expose_scan(roi)
 
     async def _image(self, roi: BaseROI) -> None:
         """Async image ROIs."""
 
-        
         roi = await self._find_focus(roi)
         await self._move(**roi.stage.model_dump())
         await self._set_parameters(roi.image.optics)
