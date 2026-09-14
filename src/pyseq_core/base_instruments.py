@@ -747,6 +747,18 @@ class BaseTemperatureController(BaseInstrument):
         """
         return self.config.get("max_val")
 
+    @property
+    def temperature_tolerance(self) -> float:
+        """Acceptable deviation from setpoint in °C before considering temperature reached.
+
+        Retrieved from the instrument's configuration under the key "tolerance".
+        Defaults to 0.5 °C if not specified.
+
+        Returns:
+            float: Temperature tolerance in °C.
+        """
+        return self.config.get("tolerance", 0.5)
+
     # Don't use property setter, can't use explicity with async
     # ie can't do `await temperature = t`
     @abstractmethod
@@ -795,15 +807,14 @@ class BaseTemperatureController(BaseInstrument):
 
     async def wait_for_temperature(self, temperature: float, interval: float = 5.0):
         """Asynchronously wait for the temperature controller to reach the
-        temperature setpoint.
+        temperature setpoint within self.temperature_tolerance degrees.
 
         Args:
             temperature (float): The temperature setpoint in degrees C.
-            interval (float): Time interval in seconds between checking temperature
-
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
+            interval (float): Time interval in seconds between polling get_temperature.
         """
 
-        while await self.get_temperature != temperature:
+        while (
+            abs(await self.get_temperature() - temperature) > self.temperature_tolerance
+        ):
             await asyncio.sleep(interval)
