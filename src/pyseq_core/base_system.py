@@ -39,6 +39,7 @@ from pyseq_core.base_protocol import (
 )
 from pyseq_core.reservation_system import ReservationSystem, reserve_microscope
 from pyseq_core.roi_manager import ROIManager, read_roi_config
+from pyseq_core.monitor import Monitor, AsyncFn
 from typing import Dict, Union, List, Coroutine, Literal, Optional
 from attrs import define, field
 from pydantic import ValidationError
@@ -689,6 +690,7 @@ class BaseSequencer(BaseSystem):
     _reagents_manager: ReagentsManager = field(init=False)
     _roi_manager: ROIManager = field(init=False)
     _sys_dict: dict = field(init=False)
+    _monitor: Monitor = field(init=False)
     # _enable: dict = field(factory=dict)
 
     @property
@@ -722,11 +724,33 @@ class BaseSequencer(BaseSystem):
 
         self._pause_event.set()
 
+        # Set up parameter monitor and auto-register flowcell temperature controllers
+        self._monitor = Monitor()
+        for fc_name, fc in self._flowcells.items():
+            if fc.TemperatureController is not None:
+                self._monitor.register(
+                    f"FlowCell{fc_name}_temperature",
+                    fc.TemperatureController.get_temperature,
+                    interval=fc.TemperatureController.interval,
+                )
+
     @abstractmethod
     @_flowcells.default
     def set_flowcells(self):
         # return {fc: TestFlowCell(name=fc) for fc in ["A", "B"]}
         pass
+
+    def register_monitor_channel(self, name: str, fn: AsyncFn, interval: float) -> None:
+        """Register any async callable for background monitoring."""
+        self._monitor.register(name, fn, interval)
+
+    def stop_monitoring(self) -> None:
+        """Stop background monitoring."""
+        self._monitor.stop()
+
+    async def _shutdown(self):
+        await self._monitor.stop_and_wait()
+        await super()._shutdown()
 
     def pump(
         self,
@@ -902,6 +926,7 @@ class BaseSequencer(BaseSystem):
             s.start()
         if len(systems) == 0:
             self._pause_event.set()
+            self._monitor.start()
 
     def shutdown(self, systems: Union[str, List[str]] = []):
         """Shutdown flow cell, microscope, or entire sequencer (default)."""

@@ -747,7 +747,7 @@ class BaseTemperatureController(BaseInstrument):
         """
         return self.config.get("max_val")
 
-    @property
+    @cached_property
     def temperature_tolerance(self) -> float:
         """Acceptable deviation from setpoint in °C before considering temperature reached.
 
@@ -758,6 +758,15 @@ class BaseTemperatureController(BaseInstrument):
             float: Temperature tolerance in °C.
         """
         return self.config.get("tolerance", 0.5)
+
+    @cached_property
+    def interval(self) -> float:
+        """Interval at which to monitor the temperature.
+
+        Retrieved from the instrument's configuration under the key "interval".
+        Defaults to 30.0 seconds if not specified.
+        """
+        return self.config.get("interval", 30.0)
 
     # Don't use property setter, can't use explicity with async
     # ie can't do `await temperature = t`
